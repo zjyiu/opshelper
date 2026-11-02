@@ -39,7 +39,7 @@ async function summarizeTitle(text: string, model?: string | null) {
     body: JSON.stringify({
       model: modelId,
       temperature: 0.2,
-      max_tokens: 60,
+      max_tokens: 400,
       stream: false,
       messages: [
         {

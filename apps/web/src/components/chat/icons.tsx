@@ -128,6 +128,20 @@ export function IconClose() {
   );
 }
 
+export function IconEdit() {
+  return (
+    <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 20h4l10.5-10.5a2.1 2.1 0 00-3-3L5 17v3zM13.5 8.5l3 3"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function IconTrash() {
   return (
     <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">

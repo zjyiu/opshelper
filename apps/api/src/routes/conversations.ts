@@ -6,6 +6,7 @@ import {
   ConversationServiceError,
   abortExecution,
   archiveConversation,
+  renameConversation,
   createConversation,
   enqueueExecution,
   forkConversation,
@@ -29,6 +30,9 @@ const attachment = z.object({
 const createConversationSchema = z.object({
   leadAgentKey: agentKey,
   title: z.string().trim().min(1).max(120).optional(),
+}).strict();
+const renameConversationSchema = z.object({
+  title: z.string().trim().min(1).max(120),
 }).strict();
 const createExecutionSchema = z.object({
   requestKey: z.string().regex(/^[A-Za-z0-9-]{8,128}$/),
@@ -66,6 +70,7 @@ export interface ConversationRouteServices {
   getCollaborationSnapshot: typeof getCollaborationSnapshot;
   openConversationEvents: typeof openConversationEvents;
   archiveConversation: typeof archiveConversation;
+  renameConversation: typeof renameConversation;
   enqueueExecution: typeof enqueueExecution;
   abortExecution: typeof abortExecution;
   reconcileInterruptedExecution: typeof reconcileInterruptedExecution;
@@ -82,6 +87,7 @@ const defaultServices: ConversationRouteServices = {
   getCollaborationSnapshot,
   openConversationEvents,
   archiveConversation,
+  renameConversation,
   enqueueExecution,
   abortExecution,
   reconcileInterruptedExecution,
@@ -184,6 +190,22 @@ export async function registerConversationRoutes(
       if (!id.safeParse(conversationId).success || !/^[a-f0-9]{12}$/.test(traceId)) return invalid(reply);
       try {
         return await services.getCollaborationSnapshot(user.id, conversationId, traceId);
+      } catch (error) {
+        return sendServiceError(error, reply);
+      }
+    },
+  );
+
+  app.patch<{ Params: { conversationId: string } }>(
+    "/v1/conversations/:conversationId",
+    async (request, reply) => {
+      const user = await services.requireSession(request, reply);
+      if (!user) return;
+      const parsed = renameConversationSchema.safeParse(request.body);
+      if (!parsed.success) return invalid(reply);
+      try {
+        const updated = await services.renameConversation(user.id, request.params.conversationId, parsed.data.title);
+        return { title: updated.title };
       } catch (error) {
         return sendServiceError(error, reply);
       }

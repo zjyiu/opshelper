@@ -19,24 +19,25 @@ import type { ConversationAgent, ConversationSummary } from "@opshelper/shared";
 
 import {
   archiveConversation,
+  renameConversation,
   getConversation,
   listConversations,
-  logout,
 } from "@/lib/browser-api";
 import { AgentMark } from "./chat/assistant";
 import { resolveConversationHistory, RECENT_CONVERSATION_LIMIT } from "./chat/conversation-history";
 import { cleanTitle, formatConversationTime, formatConversationTimestamp, fullConversationTitle } from "./chat/format";
 import type { NewConversationRequest } from "./chat/new-conversation-request";
 import {
-  BrandLogo,
   IconChat,
   IconAgent,
   IconChevron,
   IconClock,
   IconCompose,
   IconDisclosure,
+  IconEdit,
   IconFolder,
   IconMenu,
+  IconSidePanel,
   IconSearch,
 } from "./chat/icons";
 import { ConversationArchiveAction } from "./chat/conversation-archive-action";
@@ -64,6 +65,7 @@ interface WorkspaceContextValue {
   loading: boolean;
   executionBlockedReason: string | null;
   showAttachments: boolean;
+  renameConversationTitle: (conversationId: string, title: string) => Promise<void>;
   showSidebar: boolean;
   newConversationRequest: NewConversationRequest | null;
   acknowledgeNewConversationRequest: (requestId: number) => void;
@@ -119,7 +121,22 @@ export function WorkspaceShell({
   const [executionBlockedReason, setExecutionBlockedReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAttachments, setShowAttachments] = useState(false);
+  const [sideWidth, setSideWidth] = useState(SIDE_WIDTH.fallback);
+  const [artWidth, setArtWidth] = useState(ART_WIDTH.fallback);
+  useEffect(() => {
+    setSideWidth(readWidth(SIDE_WIDTH.key, SIDE_WIDTH));
+    setArtWidth(readWidth(ART_WIDTH.key, ART_WIDTH));
+  }, []);
+  const changeSideWidth = useCallback((width: number) => {
+    setSideWidth(width);
+    saveWidth(SIDE_WIDTH.key, width);
+  }, []);
+  const changeArtWidth = useCallback((width: number) => {
+    setArtWidth(width);
+    saveWidth(ART_WIDTH.key, width);
+  }, []);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [newConversationRequest, setNewConversationRequest] = useState<NewConversationRequest | null>(null);
   const newConversationSequenceRef = useRef(0);
   const activeAgentKeyRef = useRef<string | null>(null);
@@ -293,6 +310,12 @@ export function WorkspaceShell({
     setNewConversationRequest((current) => current?.id === requestId ? null : current);
   }, []);
 
+  const renameConversationTitle = useCallback(async (conversationId: string, title: string) => {
+    const result = await renameConversation(conversationId, title);
+    setConversations((current) => current.map((item) =>
+      item.id === conversationId ? { ...item, title: result.title } : item));
+  }, []);
+
   const removeConversation = useCallback(async (conversationId: string) => {
     await archiveConversation(conversationId);
     setConversations((current) => current.filter((item) => item.id !== conversationId));
@@ -330,6 +353,7 @@ export function WorkspaceShell({
     selectAgent,
     startNewConversation,
     removeConversation,
+    renameConversationTitle,
     setShowAttachments,
     setShowSidebar,
   }), [
@@ -344,6 +368,7 @@ export function WorkspaceShell({
     newConversationRequest,
     refreshHome,
     removeConversation,
+    renameConversationTitle,
     selectAgent,
     showAttachments,
     showSidebar,
@@ -354,8 +379,27 @@ export function WorkspaceShell({
   return (
     <ConversationDraftProvider key={user.username} userKey={user.username}>
       <WorkspaceContext.Provider value={contextValue}>
-        <div className={`opshelper-shell${showAttachments ? " opshelper-shell-files" : ""}${showSidebar ? " opshelper-sidebar-open" : ""}`}>
-          <WorkspaceSidebar user={user} />
+        <div
+          className={`opshelper-shell${showAttachments ? " opshelper-shell-files" : ""}${showSidebar ? " opshelper-sidebar-open" : ""}${sidebarCollapsed ? " opshelper-sidebar-collapsed" : ""}`}
+          style={{ "--g-side-user": `${sideWidth}px`, "--g-art-user": `${artWidth}px` } as React.CSSProperties}
+        >
+          <WorkspaceSidebar user={user} onCollapse={() => { setShowSidebar(false); setSidebarCollapsed(true); }} />
+          {sidebarCollapsed ? (
+            <button
+              className="opshelper-sidebar-expand"
+              type="button"
+              aria-label="展开侧边栏"
+              title="展开侧边栏"
+              onClick={() => setSidebarCollapsed(false)}
+            >
+              <IconSidePanel />
+            </button>
+          ) : (
+            <ColumnResizer edge="side" range={SIDE_WIDTH} width={sideWidth} label="调整会话列表宽度" onChange={changeSideWidth} />
+          )}
+          {showAttachments ? (
+            <ColumnResizer edge="art" range={ART_WIDTH} width={artWidth} label="调整文件列表宽度" onChange={changeArtWidth} />
+          ) : null}
           <button
             className="opshelper-sidebar-scrim"
             type="button"
@@ -366,6 +410,90 @@ export function WorkspaceShell({
         </div>
       </WorkspaceContext.Provider>
     </ConversationDraftProvider>
+  );
+}
+
+const SIDE_WIDTH = { min: 220, max: 420, fallback: 280, key: "opshelper.sideWidth" };
+const ART_WIDTH = { min: 280, max: 560, fallback: 360, key: "opshelper.artWidth" };
+
+function readWidth(key: string, range: { min: number; max: number; fallback: number }) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? clampWidth(Number(raw), range) : range.fallback;
+  } catch {
+    return range.fallback;
+  }
+}
+
+function saveWidth(key: string, width: number) {
+  try {
+    localStorage.setItem(key, String(width));
+  } catch {
+    // Browser storage may be unavailable.
+  }
+}
+
+function clampWidth(value: number, range: { min: number; max: number; fallback: number }) {
+  if (!Number.isFinite(value)) return range.fallback;
+  return Math.min(range.max, Math.max(range.min, Math.round(value)));
+}
+
+function ColumnResizer({
+  edge,
+  range,
+  width,
+  label,
+  onChange,
+}: {
+  edge: "side" | "art";
+  range: { min: number; max: number; fallback: number; key: string };
+  width: number;
+  label: string;
+  onChange: (width: number) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const startRef = useRef({ x: 0, width: 0 });
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    startRef.current = { x: event.clientX, width };
+    setDragging(true);
+    document.body.classList.add("opshelper-resizing");
+  };
+  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragging) return;
+    const delta = event.clientX - startRef.current.x;
+    // 右栏的左边界向左拖动意味着变宽。
+    onChange(clampWidth(startRef.current.width + (edge === "side" ? delta : -delta), range));
+  };
+  const stop = () => {
+    setDragging(false);
+    document.body.classList.remove("opshelper-resizing");
+  };
+  return (
+    <div
+      className={`opshelper-resizer opshelper-resizer-${edge}${dragging ? " dragging" : ""}`}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuemin={range.min}
+      aria-valuemax={range.max}
+      aria-valuenow={width}
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={stop}
+      onPointerCancel={stop}
+      onDoubleClick={() => onChange(range.fallback)}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 40 : 10;
+        const direction = edge === "side" ? 1 : -1;
+        if (event.key === "ArrowLeft") onChange(clampWidth(width - step * direction, range));
+        else if (event.key === "ArrowRight") onChange(clampWidth(width + step * direction, range));
+        else return;
+        event.preventDefault();
+      }}
+    />
   );
 }
 
@@ -385,7 +513,7 @@ export function WorkspaceMenuButton() {
   );
 }
 
-function WorkspaceSidebar({ user }: { user: WorkspaceUser }) {
+function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollapse: () => void }) {
   const { drafts } = useConversationDraftStore();
   const pathname = usePathname();
   const {
@@ -398,14 +526,33 @@ function WorkspaceSidebar({ user }: { user: WorkspaceUser }) {
     selectAgent,
     startNewConversation,
     removeConversation,
+    renameConversationTitle,
     showSidebar,
     setShowSidebar,
   } = useWorkspace();
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [showAllConversations, setShowAllConversations] = useState(false);
   const [archiveConversationId, setArchiveConversationId] = useState<string | null>(null);
   const closeArchive = useCallback(() => setArchiveConversationId(null), []);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameBusyRef = useRef(false);
+  const commitRename = async (item: { id: string; title: string }) => {
+    if (renameBusyRef.current) return;
+    const next = renameValue.replace(/\s+/g, " ").trim().slice(0, 120);
+    setRenamingId(null);
+    if (!next || next === item.title) return;
+    renameBusyRef.current = true;
+    try {
+      await renameConversationTitle(item.id, next);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "重命名失败，请重试");
+    } finally {
+      renameBusyRef.current = false;
+    }
+  };
 
   useEffect(() => {
     closeArchive();
@@ -497,8 +644,16 @@ function WorkspaceSidebar({ user }: { user: WorkspaceUser }) {
   return (
     <aside className="opshelper-sidebar" id="opshelper-sidebar" aria-label="小信运维助手导航">
       <div className="opshelper-brand">
-        <BrandLogo />
         <span className="opshelper-brand-name">小信运维助手</span>
+        <button
+          className="opshelper-sidebar-collapse"
+          type="button"
+          aria-label="收起侧边栏"
+          title="收起侧边栏"
+          onClick={onCollapse}
+        >
+          <IconSidePanel />
+        </button>
       </div>
 
       <div className="opshelper-side-group">
@@ -599,21 +754,46 @@ function WorkspaceSidebar({ user }: { user: WorkspaceUser }) {
         </div>
       </div>
 
-      <div className="opshelper-search">
-        <IconSearch />
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="搜索会话"
-          aria-label="搜索当前智能体的会话"
-        />
-      </div>
-
-      {/* 分区标题：给列表一个开头，并说明搜索的范围就是这一组会话。 */}
       <div className="opshelper-side-label">
         <span>会话</span>
         {!loading && visibleCount > 0 ? <span className="opshelper-side-count">{visibleCount}</span> : null}
+        <button
+          type="button"
+          className={`opshelper-search-toggle${searchOpen ? " active" : ""}`}
+          onMouseDown={(event) => event.preventDefault()}
+          aria-label={searchOpen ? "收起搜索" : "搜索会话"}
+          aria-expanded={searchOpen}
+          title="搜索会话"
+          onClick={() => {
+            if (searchOpen) setSearch("");
+            setSearchOpen(!searchOpen);
+          }}
+        >
+          <IconSearch />
+        </button>
       </div>
+
+      {searchOpen ? (
+        <div className="opshelper-search">
+          <IconSearch />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setSearch("");
+                setSearchOpen(false);
+              }
+            }}
+            placeholder="搜索会话"
+            aria-label="搜索当前智能体的会话"
+            onBlur={() => {
+              if (!search.trim()) setSearchOpen(false);
+            }}
+            autoFocus
+          />
+        </div>
+      ) : null}
 
       <nav className="opshelper-nav" aria-label="当前智能体的会话和用户功能">
         <div className="opshelper-current-conversations" id={conversationListId} ref={conversationListRef}>
@@ -625,6 +805,30 @@ function WorkspaceSidebar({ user }: { user: WorkspaceUser }) {
             <div className={`opshelper-conv${pathname.endsWith("/chat") && item.id === activeConversationId ? " active" : ""}`} key={item.id}>
               {/* 让最终生效的 URL 驱动会话切换。若先改 activeConversationId，快速跨页点击时
                   前一次路由可能在会话请求期间提交，聊天页便会遗留在加载态。 */}
+              {renamingId === item.id ? (
+                <div className="opshelper-conv-main opshelper-conv-renaming">
+                  <IconChat />
+                  <input
+                    className="opshelper-conv-rename-input"
+                    value={renameValue}
+                    maxLength={120}
+                    autoFocus
+                    aria-label="会话名称"
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(event) => setRenameValue(event.target.value)}
+                    onBlur={() => void commitRename(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void commitRename(item);
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        setRenamingId(null);
+                      }
+                    }}
+                  />
+                </div>
+              ) : (
               <Link
                 className="opshelper-conv-main"
                 href={`/chat?conversation=${encodeURIComponent(item.id)}`}
@@ -645,6 +849,21 @@ function WorkspaceSidebar({ user }: { user: WorkspaceUser }) {
                   </span>
                 </span>
               </Link>
+              )}
+              {renamingId === item.id ? null : (
+                <button
+                  type="button"
+                  className="opshelper-conv-del opshelper-conv-edit"
+                  aria-label={`重命名会话 ${cleanTitle(item.title)}`}
+                  title="重命名"
+                  onClick={() => {
+                    setRenameValue(cleanTitle(item.title));
+                    setRenamingId(item.id);
+                  }}
+                >
+                  <IconEdit />
+                </button>
+              )}
               <ConversationArchiveAction
                 title={item.title}
                 open={archiveConversationId === item.id}
@@ -694,8 +913,14 @@ function WorkspaceSidebar({ user }: { user: WorkspaceUser }) {
         >
           {user.name}
         </Link>
-        {user.role === "admin" ? <Link className="opshelper-admin-link" href="/admin">管理</Link> : null}
-        <button className="opshelper-logout" onClick={() => void logout().then(() => { window.location.href = "/gateway/login"; })}>退出</button>
+        {user.role === "admin" ? (
+          <Link className="opshelper-admin-link" href="/admin" title="管理" aria-label="管理">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </Link>
+        ) : null}
       </div>
     </aside>
   );

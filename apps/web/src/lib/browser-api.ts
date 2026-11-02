@@ -294,6 +294,14 @@ export async function forkConversation(conversationId: string, messageId: string
   );
 }
 
+export async function renameConversation(conversationId: string, title: string) {
+  return fetchJson<{ title: string }>(`/v1/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+}
+
 export async function archiveConversation(conversationId: string) {
   return fetchJson<void>(`/v1/conversations/${encodeURIComponent(conversationId)}`, {
     method: "DELETE",

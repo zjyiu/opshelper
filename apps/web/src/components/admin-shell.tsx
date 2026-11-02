@@ -14,9 +14,7 @@ import {
   type RefObject,
 } from "react";
 
-import { logout } from "@/lib/browser-api";
 import {
-  BrandLogo,
   IconAgent,
   IconArrowLeft,
   IconContainer,
@@ -174,7 +172,6 @@ export function AdminShell({
           inert={isDrawer && !showSidebar}
         >
           <div className="opshelper-brand">
-            <BrandLogo />
             <span className="opshelper-brand-name">小信运维助手</span>
           </div>
 
@@ -224,12 +221,6 @@ export function AdminShell({
             <Link className="opshelper-user-name" href="/admin/account" title="账户设置">
               {user.name}
             </Link>
-            <button
-              className="opshelper-logout"
-              onClick={() => void logout().then(() => { window.location.href = "/gateway/login"; })}
-            >
-              退出
-            </button>
           </div>
         </aside>
 

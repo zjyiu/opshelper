@@ -6,10 +6,8 @@ import { changePassword } from "@/lib/browser-api";
 
 export function AdminAccountSettings({
   username,
-  name,
 }: {
   username: string;
-  name: string;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -24,10 +22,6 @@ export function AdminAccountSettings({
       <div className="field">
         <span className="field-label">用户名</span>
         <div className="mono">{username}</div>
-      </div>
-      <div className="field">
-        <span className="field-label">显示名称</span>
-        <div>{name}</div>
       </div>
 
       <div className="panel-header" style={{ marginTop: 18 }}>

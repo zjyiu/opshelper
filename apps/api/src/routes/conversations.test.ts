@@ -26,6 +26,7 @@ function services(overrides: Partial<ConversationRouteServices> = {}): Conversat
     getConversationSnapshot: async () => ({ conversation: { id: "conversation-owned" } }) as any,
     openConversationEvents: async () => (async function* () { yield "event: ready\ndata: {}\n\n"; })(),
     archiveConversation: async () => ({ id: "conversation-owned" }) as any,
+    renameConversation: async () => ({ id: "conversation-owned", title: "x" }) as any,
     enqueueExecution: async () => ({ id: "execution-created" }) as any,
     abortExecution: async () => ({ status: "CANCELLED" }) as any,
     reconcileInterruptedExecution: async () => ({ status: "SUCCEEDED", error: null }) as any,

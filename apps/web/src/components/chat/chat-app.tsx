@@ -37,7 +37,7 @@ import {
   settleStreamSnapshot,
 } from "./conversation-stream";
 import { guessMime, messageSignature } from "./format";
-import { IconClose, IconSidePanel } from "./icons";
+import { IconClose, IconFolder } from "./icons";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
 import { fromInitialMessages, sortedMessages, type ChatMessage } from "./message-model";
 import { resolveNewConversationRequest } from "./new-conversation-request";
@@ -169,7 +169,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   const [autoApprovePermissions, setAutoApprovePermissions] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // 首屏示例只能把文字放进草稿，输入框得自己抬起来；每次点击递增一次信号。
-  const [composerFocus, setComposerFocus] = useState(0);
+  const [composerFocus] = useState(0);
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [snapshotUnavailable, setSnapshotUnavailable] = useState(false);
@@ -463,16 +463,6 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     setNotice(null);
   }, [attachments, draftKey, drafts, draftsReady, input, navigating, setDraft]);
 
-  // 首屏任务示例只填入输入框，不直接发送：由用户确认内容后再手动提交，
-  // 已有草稿时追加在下面，不静默覆盖用户已经写好的内容。
-  const pickStarter = useCallback((text: string) => {
-    setInput((current) => {
-      const existing = current.replace(/\s+$/, "");
-      return existing ? `${existing}\n${text}` : text;
-    });
-    setComposerFocus((token) => token + 1);
-  }, [setInput]);
-
   // 只发送当前草稿：首屏示例、未发送草稿恢复都先写回草稿，再走同一条路径。
   const send = useCallback(async () => {
     const text = input;
@@ -510,7 +500,8 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       if (!conversationId) {
         const created = await createConversation({
           leadAgentKey: activeAssistant.id,
-          title: text.trim().slice(0, 120) || readyAttachments[0]?.filename || "新的对话",
+          // 有文字时留给服务端：它会按问题内容生成简短标题。
+          title: text.trim() ? undefined : readyAttachments[0]?.filename || "新的对话",
         });
         conversationId = created.conversationId;
         submittedConversationId = conversationId;
@@ -779,17 +770,16 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             aria-controls="opshelper-attachment-panel"
             onClick={() => setShowAttachments((value) => !value)}
           >
-            <IconSidePanel />
+            <IconFolder />
           </button>
         </header>
-        <div className="opshelper-stage">
+        <div className={`opshelper-stage${conversationSurface === "new" && displayedMessages.length === 0 && !(sending || hasActiveExecution || forkingMessageId !== null) ? " opshelper-stage-empty" : ""}`}>
           <Conversation
             messages={displayedMessages}
             surface={conversationSurface}
             assistant={activeAssistant}
             busy={sending || hasActiveExecution || forkingMessageId !== null}
             sessionId={activeConversationId}
-            onPick={pickStarter}
             onRestartFrom={restartFrom}
             forkingMessageId={forkingMessageId}
             executions={visibleSnapshot?.executions ?? []}

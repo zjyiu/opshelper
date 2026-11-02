@@ -1989,6 +1989,13 @@ export async function reconcileInterruptedExecution(userId: string, executionId:
   return prisma.execution.findUniqueOrThrow({ where: { id: execution.id } });
 }
 
+export async function renameConversation(userId: string, conversationId: string, title: string) {
+  await requireOwnedConversation(userId, conversationId);
+  const next = title.replace(/\s+/g, " ").trim().slice(0, 120);
+  if (!next) throw new ConversationServiceError("标题不能为空");
+  return prisma.conversation.update({ where: { id: conversationId }, data: { title: next } });
+}
+
 export async function archiveConversation(userId: string, conversationId: string) {
   await requireOwnedConversation(userId, conversationId);
   const active = await prisma.execution.findFirst({

@@ -12,7 +12,7 @@ import {
 } from "react";
 import type { ExecutionSummary } from "@opshelper/shared";
 
-import { AgentMark, starterExamplesFor, type Assistant } from "./assistant";
+import { AgentMark, type Assistant } from "./assistant";
 import {
   describeOpencodeError,
   fileAttachments,
@@ -81,7 +81,6 @@ export function Conversation({
   assistant,
   busy,
   sessionId,
-  onPick,
   onRestartFrom,
   forkingMessageId,
   executions,
@@ -95,7 +94,6 @@ export function Conversation({
   assistant: Assistant;
   busy: boolean;
   sessionId: string | null;
-  onPick: (text: string) => void;
   onRestartFrom: (message: ChatMessage) => void;
   forkingMessageId: string | null;
   executions: ExecutionSummary[];
@@ -203,29 +201,7 @@ export function Conversation({
       ) : null}
       {surface === "new" && messages.length === 0 && !busy ? (
         <div className="opshelper-empty">
-          <AgentMark
-            id={assistant.id}
-            name={assistant.name}
-            description={assistant.description}
-          />
-          <h1 className="opshelper-empty-title">有什么可以帮你？</h1>
-          <p className="opshelper-empty-hint">
-            直接说说你想做什么，也可以选择一个示例，补充内容后发送。
-          </p>
-          <div className="opshelper-empty-cards">
-            {starterExamplesFor(assistant).map((example) => (
-              <button
-                key={example.text}
-                type="button"
-                className="opshelper-empty-card"
-                title={example.text}
-                onClick={() => onPick(example.text)}
-                disabled={busy}
-              >
-                <span className="opshelper-empty-card-title">{example.title}</span>
-              </button>
-            ))}
-          </div>
+          <h1 className="opshelper-empty-title">你好，我能帮什么忙吗？</h1>
         </div>
       ) : null}
       {surface === "ready" || surface === "new" ? turns.map((turn) => {
