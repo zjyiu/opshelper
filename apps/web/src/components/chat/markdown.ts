@@ -38,6 +38,8 @@ const defaultFenceRule =
 markdown.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
   if (token.info.trim().split(/\s+/)[0]?.toLowerCase() === "mermaid") {
+    // 同一条回答已用图片引用了生成的图时，不再重复渲染一遍源码图。
+    if ((env as { hasWorkspaceImage?: boolean } | undefined)?.hasWorkspaceImage) return "";
     try {
       return `<div class="opshelper-diagram">${renderDiagram(token.content).svg}</div>\n`;
     } catch {
@@ -72,5 +74,10 @@ markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
 };
 
 export function renderAssistantMarkdown(value: string) {
-  return markdown.render(value);
+  const env: { hasWorkspaceImage?: boolean } = {};
+  const tokens = markdown.parse(value, env);
+  env.hasWorkspaceImage = tokens.some((block) =>
+    block.children?.some((child) => child.type === "image" && /^\/workspace\//.test(child.attrGet("src") ?? "")),
+  );
+  return markdown.renderer.render(tokens, markdown.options, env);
 }

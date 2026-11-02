@@ -37,6 +37,7 @@ import { ConversationTextProjector, conversationEventFrame, readRuntimeEvents } 
 import { resolveUserPathSafe } from "./file-service";
 import { runtimeAuthorization, type ManagedRuntime } from "./managed-runtime";
 import { prisma } from "./prisma";
+import { fallbackConversationTitle, needsTitleSummary, summarizeConversationTitle } from "./conversation-title";
 import { normalizeV2Messages, normalizeV2Form, normalizeV2Event, v2FormAnswer, v2List, v2Request, RuntimeRequestError } from "./opencode-v2";
 import { withUserConfigLock } from "./user-config-lock";
 
@@ -914,7 +915,7 @@ export async function enqueueExecution(input: {
           // 在归档的对话里继续发言就当作用户重新使用它：回到会话列表，而不是留在隐形状态。
           archivedAt: null,
           title: conversation.title === "新的对话" && input.text.trim()
-            ? input.text.trim().replace(/\s+/g, " ").slice(0, 60)
+            ? fallbackConversationTitle(input.text)
             : conversation.title,
         },
       });
@@ -938,6 +939,13 @@ export async function enqueueExecution(input: {
       throw new ConversationServiceError("重复请求标识对应的任务内容不一致", 409);
     }
     execution = duplicate;
+  }
+  if (conversation.title === "新的对话" && needsTitleSummary(input.text)) {
+    void summarizeConversationTitle({
+      conversationId: conversation.id,
+      text: input.text,
+      model: input.model?.trim() || null,
+    });
   }
   loopKick?.();
   return execution;
