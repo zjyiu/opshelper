@@ -10,6 +10,7 @@ import {
 } from "@/lib/browser-api";
 import { toast } from "@/lib/toast";
 import { IconSearch } from "@/components/chat/icons";
+import { SkillDetailModal } from "@/components/skill-detail-modal";
 import { prompt as promptDialog } from "@/components/ui/dialog-host";
 
 function errorMessage(error: unknown, fallback: string) {
@@ -25,7 +26,7 @@ export function SkillRepositoryManager({
   const [skills, setSkills] = useState(initialSkills);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-  const [expandedDescriptions, setExpandedDescriptions] = useState<string[]>([]);
+  const [active, setActive] = useState<SkillRepositorySkillSummary | null>(null);
   const [busy, setBusy] = useState(false);
 
   const filteredSkills = useMemo(() => {
@@ -45,9 +46,7 @@ export function SkillRepositoryManager({
 
   function toggleSkill(name: string) {
     setSelected((current) =>
-      current.includes(name)
-        ? current.filter((item) => item !== name)
-        : [...current, name],
+      current.includes(name) ? current.filter((item) => item !== name) : [...current, name],
     );
   }
 
@@ -59,14 +58,6 @@ export function SkillRepositoryManager({
       }
       return [...new Set([...current, ...visibleSkillNames])];
     });
-  }
-
-  function toggleDescription(name: string) {
-    setExpandedDescriptions((current) =>
-      current.includes(name)
-        ? current.filter((item) => item !== name)
-        : [...current, name],
-    );
   }
 
   async function uploadSkills(files: File[]) {
@@ -97,17 +88,18 @@ export function SkillRepositoryManager({
     }
   }
 
-  async function removeSelectedSkills() {
-    if (!selected.length) return;
+  async function removeSkills(names: string[]) {
+    if (!names.length) return;
+    setActive(null);
     const typed = await promptDialog({
-      title: `删除 ${selected.length} 个仓库技能`,
+      title: names.length === 1 ? `删除仓库技能 ${names[0]}` : `删除 ${names.length} 个仓库技能`,
       description: (
         <>
-          该操作会永久删除选中的仓库技能。请输入 <strong>DELETE</strong> 确认。
+          该操作会永久删除{names.length === 1 ? "该" : "选中的"}仓库技能。请输入 <strong>DELETE</strong> 确认。
         </>
       ),
       placeholder: "DELETE",
-      confirmLabel: "删除选中技能",
+      confirmLabel: names.length === 1 ? "删除技能" : "删除选中技能",
       autoSelect: "none",
       validate: (value) => value === "DELETE" ? null : "请输入 DELETE",
     });
@@ -116,7 +108,7 @@ export function SkillRepositoryManager({
     setBusy(true);
     const failed: Array<{ name: string; message: string }> = [];
     try {
-      for (const name of selected) {
+      for (const name of names) {
         try {
           await deleteSkillRepositorySkill(name);
         } catch (error) {
@@ -125,7 +117,7 @@ export function SkillRepositoryManager({
       }
       await refreshSkills();
       if (!failed.length) {
-        toast.success(`已删除 ${selected.length} 个仓库技能`);
+        toast.success(`已删除 ${names.length} 个仓库技能`);
       } else {
         toast.error(`有 ${failed.length} 个技能删除失败：${failed[0].name}（${failed[0].message}）`);
       }
@@ -141,7 +133,7 @@ export function SkillRepositoryManager({
       <div className="panel-header">
         <div>
           <div className="panel-title">技能仓库</div>
-          <div className="muted">支持批量上传/删除；搜索按技能 name 模糊匹配。</div>
+          <div className="muted">支持批量上传/删除；点击技能名查看详情；搜索按技能 name 模糊匹配。</div>
         </div>
         <div className="mono muted">共 {skills.length} 个</div>
       </div>
@@ -180,53 +172,30 @@ export function SkillRepositoryManager({
             disabled={busy || !filteredSkills.length}
             onChange={toggleAllVisibleSkills}
           />
-          <span>全选当前结果</span>
+          <span>全选</span>
         </label>
-        <button className="button-danger" type="button" disabled={busy || !selected.length} onClick={() => { void removeSelectedSkills(); }}>
+        <button className="button-danger" type="button" disabled={busy || !selected.length} onClick={() => { void removeSkills(selected); }}>
           删除选中（{selected.length}）
         </button>
       </div>
 
-      <div className="stack">
+      <div className="stack skill-repository-grid">
         {filteredSkills.map((skill) => {
           const checked = selected.includes(skill.name);
           return (
-            <label key={skill.name} className={`agent-assignment-option${checked ? " checked" : ""}`}>
+            <div key={skill.name} className={`skill-repository-item${checked ? " checked" : ""}`}>
               <input
                 type="checkbox"
                 checked={checked}
                 disabled={busy}
+                aria-label={`选择 ${skill.name}`}
                 onChange={() => toggleSkill(skill.name)}
               />
-              <span>
-                <button
-                  className="skill-repository-name"
-                  type="button"
-                  aria-expanded={expandedDescriptions.includes(skill.name)}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleDescription(skill.name);
-                  }}
-                >
-                  {skill.name}
-                </button>
-                <button
-                  className={`skill-repository-description${expandedDescriptions.includes(skill.name) ? " expanded" : ""}`}
-                  type="button"
-                  aria-expanded={expandedDescriptions.includes(skill.name)}
-                  title="点击展开或收起技能说明"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleDescription(skill.name);
-                  }}
-                >
-                  {skill.description}
-                </button>
-                <small className="mono">{skill.fileCount} 个文件 · 更新于 {new Date(skill.updatedAt).toLocaleString("zh-CN")}</small>
-              </span>
-            </label>
+              <button className="skill-repository-item-name" type="button" onClick={() => setActive(skill)}>
+                <span className="skill-repository-item-title">{skill.name}</span>
+                <span className="skill-repository-item-desc">{skill.description}</span>
+              </button>
+            </div>
           );
         })}
         {!filteredSkills.length ? (
@@ -236,6 +205,19 @@ export function SkillRepositoryManager({
           </div>
         ) : null}
       </div>
+      {active ? (
+        <SkillDetailModal
+          name={active.name}
+          description={active.description}
+          fileCount={active.fileCount}
+          updatedAt={active.updatedAt}
+          actionLabel="删除技能"
+          actionVariant="button-danger"
+          busy={busy}
+          onAction={() => { void removeSkills([active.name]); }}
+          onClose={() => setActive(null)}
+        />
+      ) : null}
     </section>
   );
 }

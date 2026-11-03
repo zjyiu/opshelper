@@ -1995,28 +1995,6 @@
 }
 .opshelper-page-body .agent-assignment-option:hover { border-color: var(--g-line-strong); background: var(--g-field); }
 .opshelper-page-body .agent-assignment-option.checked { border-color: var(--g-accent-line); background: var(--g-accent-soft); }
-.opshelper-page-body .skill-repository-select-all {
-  display: inline-flex; align-items: center; gap: 7px; color: var(--g-muted); font-size: 13px;
-  white-space: nowrap; cursor: pointer;
-}
-.opshelper-page-body .skill-repository-select-all input { accent-color: var(--g-accent); }
-.opshelper-page-body .skill-repository-name {
-  justify-self: start; padding: 0; border: 0; background: transparent;
-  color: var(--g-text); font: inherit; font-size: 15px; font-weight: 650;
-  text-align: left; cursor: pointer;
-}
-.opshelper-page-body .skill-repository-name:hover { color: var(--g-accent-dark); }
-.opshelper-page-body .skill-repository-description {
-  display: -webkit-box; width: 100%; padding: 0; border: 0; background: transparent;
-  color: var(--g-muted); font: inherit; font-size: 14px; line-height: 1.55; text-align: left;
-  white-space: normal; cursor: pointer; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-.opshelper-page-body .skill-repository-description:hover { color: var(--g-text); }
-.opshelper-page-body .skill-repository-description.expanded {
-  display: block; overflow: visible; -webkit-line-clamp: unset;
-}
-
 /* ---- 技能仓库：管理页与「智能体 → 从仓库导入」共用的卡片列表 ---- */
 /* 面板头右侧的数量做成小胶囊，和「容器列表」的「共 N 个」一致。 */
 .opshelper-page-body .panel-header > .mono.muted {
@@ -2029,43 +2007,51 @@
   padding: 16px; border-radius: 14px; background: #f8faf9; box-shadow: none;
 }
 /* 工具栏：搜索框优先占宽，全选做成与按钮同高的描边胶囊。 */
-.opshelper-page-body .skill-repository-select-all {
-  min-height: 34px; padding: 0 12px; border: 1px solid var(--g-line-strong);
-  border-radius: 9px; background: var(--g-bg); transition: border-color 0.12s, background 0.12s;
+/* 技能仓库只列出技能名：宽屏多列，窄处自动单列；详情在弹窗里查看。 */
+.opshelper-page-body .stack.skill-repository-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 10px;
 }
-.opshelper-page-body .skill-repository-select-all:hover { background: var(--g-field); }
-.opshelper-page-body .skill-repository-select-all input { width: 15px; height: 15px; margin: 0; }
-/* 技能卡片：宽屏两列，窄处自动单列；同行卡片等高，文件数与更新时间沉在卡片底部。 */
-.opshelper-page-body .stack:has(> .agent-assignment-option .skill-repository-name) {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 10px;
-}
-.opshelper-page-body .stack:has(> .agent-assignment-option .skill-repository-name) > .agent-catalog-empty {
-  grid-column: 1 / -1;
-}
-.opshelper-page-body .agent-assignment-option:has(.skill-repository-name) {
-  gap: 12px; align-items: stretch; padding: 14px 16px;
-  border-radius: 12px; background: var(--g-bg);
+.opshelper-page-body .stack.skill-repository-grid > .agent-catalog-empty { grid-column: 1 / -1; }
+.opshelper-page-body .skill-repository-item {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 16px;
+  border: 1px solid var(--g-line); border-radius: 12px; background: var(--g-bg);
   transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
-.opshelper-page-body .agent-assignment-option:has(.skill-repository-name):hover {
-  border-color: var(--g-line-strong); background: var(--g-bg); box-shadow: var(--g-shadow-sm);
+.opshelper-page-body .skill-repository-item:hover { border-color: var(--g-line-strong); box-shadow: var(--g-shadow-sm); }
+.opshelper-page-body .skill-repository-item.checked { border-color: var(--g-accent-line); background: var(--g-accent-soft); }
+.opshelper-page-body .skill-repository-item input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--g-accent); }
+.opshelper-page-body .skill-repository-item-name {
+  flex: 1; min-width: 0; padding: 0; border: 0; background: transparent;
+  display: flex; flex-direction: column; gap: 4px;
+  color: var(--g-text); font: inherit; text-align: left; cursor: pointer;
 }
-.opshelper-page-body .agent-assignment-option.checked:has(.skill-repository-name),
-.opshelper-page-body .agent-assignment-option.checked:has(.skill-repository-name):hover {
-  border-color: var(--g-accent-line); background: var(--g-accent-soft);
+.opshelper-page-body .skill-repository-item-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.opshelper-page-body .skill-repository-item-name:hover:not(:disabled) .skill-repository-item-title { color: var(--g-accent-dark); }
+/* 两行截断：line-clamp 加 max-height 兜底，旧内核不支持 line-clamp 时也不会撑开。 */
+.opshelper-page-body .skill-repository-item-desc {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  max-height: 3.1em; overflow: hidden; color: var(--g-muted); font-size: 13px; font-weight: 400;
+  line-height: 1.55; overflow-wrap: anywhere;
 }
-.opshelper-page-body .agent-assignment-option:has(.skill-repository-name) > input {
-  width: 16px; height: 16px; margin-top: 2px;
+.opshelper-page-body .skill-repository-select-all {
+  display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding: 10px 16px;
+  border: 1px solid var(--g-line-strong); border-radius: 16px; background: transparent;
+  color: var(--g-muted); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
 }
-.opshelper-page-body .agent-assignment-option:has(.skill-repository-name) > span {
-  display: flex; flex-direction: column; gap: 4px; min-width: 0;
+/* 导入面板保持原布局：紧凑的全选胶囊排在搜索框之前。 */
+.opshelper-page-body .agent-editor .skill-repository-select-all {
+  order: -1; min-height: 34px; padding: 0 10px; border-radius: 10px;
 }
-.opshelper-page-body .skill-repository-name { max-width: 100%; overflow-wrap: anywhere; }
-.opshelper-page-body .skill-repository-description { font-size: 13px; line-height: 1.6; }
-.opshelper-page-body .skill-repository-description + small {
-  margin-top: auto; padding-top: 6px;
-  color: var(--g-faint); font-family: inherit; font-size: 12px; font-variant-numeric: tabular-nums;
+.opshelper-page-body .skill-repository-select-all:hover { background: var(--g-field); }
+.opshelper-page-body .skill-repository-select-all input { width: 15px; height: 15px; margin: 0; accent-color: var(--g-accent); }
+.skill-detail-dialog { width: min(640px, 100%); padding: 26px; gap: 16px; }
+.file-dialog-title.skill-detail-name { font-size: 20px; overflow-wrap: anywhere; }
+.skill-detail-description {
+  max-height: 55vh; overflow-y: auto; color: var(--muted); font-size: 15px; line-height: 1.7;
+  white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.skill-detail-meta { color: var(--muted); font-size: 13px; }
 /* 导入面板底部的操作条：技能很多时滚动也能随时点到「导入选中」。 */
 .opshelper-page-body .agent-editor .panel > .stack + .inline-actions {
   position: sticky; bottom: 0; z-index: 1; margin: 14px -16px -16px !important;

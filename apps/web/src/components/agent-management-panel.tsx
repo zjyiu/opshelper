@@ -55,6 +55,7 @@ import {
   IconTrash,
   getFileIcon,
 } from "@/components/file-icons";
+import { SkillDetailModal } from "@/components/skill-detail-modal";
 import { IconAlert, IconCheck, IconClose, IconSearch, IconSkill } from "@/components/chat/icons";
 
 type Tab = "catalog" | "assignments" | "models" | "instructions";
@@ -260,7 +261,7 @@ export function AgentManagementPanel({
   const [repositorySkills, setRepositorySkills] = useState<SkillRepositorySkillSummary[]>([]);
   const [repositoryQuery, setRepositoryQuery] = useState("");
   const [selectedRepositorySkills, setSelectedRepositorySkills] = useState<string[]>([]);
-  const [expandedRepositoryDescriptions, setExpandedRepositoryDescriptions] = useState<string[]>([]);
+  const [activeRepositorySkill, setActiveRepositorySkill] = useState<SkillRepositorySkillSummary | null>(null);
   const [disableTarget, setDisableTarget] = useState<AgentDetail | null>(null);
   const [skillDeleteTarget, setSkillDeleteTarget] = useState<AgentSkillGroup | null>(null);
 
@@ -510,7 +511,7 @@ export function AgentManagementPanel({
   async function openSkillRepository() {
     setSkillRepositoryOpen(true);
     setRepositoryQuery("");
-    setSelectedRepositorySkills([]);
+    setActiveRepositorySkill(null);
     try {
       await loadSkillRepository();
     } catch (error) {
@@ -520,15 +521,14 @@ export function AgentManagementPanel({
 
   function closeSkillRepository() {
     setSkillRepositoryOpen(false);
+    setActiveRepositorySkill(null);
     setSelectedRepositorySkills([]);
     setRepositoryQuery("");
   }
 
   function toggleRepositorySkill(name: string) {
     setSelectedRepositorySkills((current) =>
-      current.includes(name)
-        ? current.filter((item) => item !== name)
-        : [...current, name],
+      current.includes(name) ? current.filter((item) => item !== name) : [...current, name],
     );
   }
 
@@ -542,21 +542,14 @@ export function AgentManagementPanel({
     });
   }
 
-  function toggleRepositoryDescription(name: string) {
-    setExpandedRepositoryDescriptions((current) =>
-      current.includes(name)
-        ? current.filter((item) => item !== name)
-        : [...current, name],
-    );
-  }
-
-  async function importSelectedSkillsFromRepository() {
-    if (!selectedRepositorySkills.length) return;
+  async function importSkillsFromRepository(names: string[]) {
+    if (!names.length) return;
+    setActiveRepositorySkill(null);
     setBusy(true);
     setRepositoryBusy(true);
     try {
       const importedSkills: Array<{ skillName: string; files: Record<string, string>; binaryFiles: Record<string, string> }> = [];
-      for (const name of selectedRepositorySkills) {
+      for (const name of names) {
         importedSkills.push(await getSkillRepositorySkill(name));
       }
       mergeImportedSkills(importedSkills);
@@ -975,7 +968,7 @@ export function AgentManagementPanel({
                         <div className="panel-header">
                           <div>
                             <div className="panel-title">技能仓库</div>
-                            <div className="muted">按 name 模糊搜索，支持一次导入多个技能。</div>
+                            <div className="muted">按 name 模糊搜索，支持一次导入多个技能；点击技能名查看详情。</div>
                           </div>
                           <div className="mono muted">{repositoryBusy ? "加载中…" : `共 ${repositorySkills.length} 个`}</div>
                         </div>
@@ -998,49 +991,31 @@ export function AgentManagementPanel({
                               disabled={busy || repositoryBusy || !filteredRepositorySkills.length}
                               onChange={toggleAllVisibleRepositorySkills}
                             />
-                            <span>全选当前结果</span>
+                            <span>全选</span>
                           </label>
                         </div>
-                        <div className="stack">
+                        <div className="stack skill-repository-grid">
                           {filteredRepositorySkills.map((skill) => {
                             const checked = selectedRepositorySkills.includes(skill.name);
                             return (
-                              <label key={skill.name} className={`agent-assignment-option${checked ? " checked" : ""}`}>
+                              <div key={skill.name} className={`skill-repository-item${checked ? " checked" : ""}`}>
                                 <input
                                   type="checkbox"
                                   checked={checked}
                                   disabled={busy || repositoryBusy}
+                                  aria-label={`选择 ${skill.name}`}
                                   onChange={() => toggleRepositorySkill(skill.name)}
                                 />
-                                <span>
-                                  <button
-                                    className="skill-repository-name"
-                                    type="button"
-                                    aria-expanded={expandedRepositoryDescriptions.includes(skill.name)}
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      toggleRepositoryDescription(skill.name);
-                                    }}
-                                  >
-                                    {skill.name}
-                                  </button>
-                                  <button
-                                    className={`skill-repository-description${expandedRepositoryDescriptions.includes(skill.name) ? " expanded" : ""}`}
-                                    type="button"
-                                    aria-expanded={expandedRepositoryDescriptions.includes(skill.name)}
-                                    title="点击展开或收起技能说明"
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
-                                      toggleRepositoryDescription(skill.name);
-                                    }}
-                                  >
-                                    {skill.description}
-                                  </button>
-                                  <small className="mono">{skill.fileCount} 个文件 · 更新于 {new Date(skill.updatedAt).toLocaleString("zh-CN")}</small>
-                                </span>
-                              </label>
+                                <button
+                                  className="skill-repository-item-name"
+                                  type="button"
+                                  disabled={busy || repositoryBusy}
+                                  onClick={() => setActiveRepositorySkill(skill)}
+                                >
+                                  <span className="skill-repository-item-title">{skill.name}</span>
+                                  <span className="skill-repository-item-desc">{skill.description}</span>
+                                </button>
+                              </div>
                             );
                           })}
                           {!filteredRepositorySkills.length ? (
@@ -1055,7 +1030,7 @@ export function AgentManagementPanel({
                             className="button"
                             type="button"
                             disabled={busy || repositoryBusy || !selectedRepositorySkills.length}
-                            onClick={() => { void importSelectedSkillsFromRepository(); }}
+                            onClick={() => { void importSkillsFromRepository(selectedRepositorySkills); }}
                           >
                             导入选中（{selectedRepositorySkills.length}）
                           </button>
@@ -1063,6 +1038,19 @@ export function AgentManagementPanel({
                             取消
                           </button>
                         </div>
+                        {activeRepositorySkill ? (
+                          <SkillDetailModal
+                            name={activeRepositorySkill.name}
+                            description={activeRepositorySkill.description}
+                            fileCount={activeRepositorySkill.fileCount}
+                            updatedAt={activeRepositorySkill.updatedAt}
+                            actionLabel="导入"
+                            actionVariant="button"
+                            busy={busy || repositoryBusy}
+                            onAction={() => { void importSkillsFromRepository([activeRepositorySkill.name]); }}
+                            onClose={() => setActiveRepositorySkill(null)}
+                          />
+                        ) : null}
                       </section>
                     ) : (
                       <>
