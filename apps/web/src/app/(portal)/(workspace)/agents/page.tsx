@@ -5,7 +5,12 @@ import { UserAgentCatalog } from "@/components/user-agent-catalog";
 import { WorkspaceMenuButton } from "@/components/workspace-shell";
 import { getSession, getUserAgentCatalogSnapshot } from "@/lib/api";
 
-export default async function UserAgentsPage() {
+export default async function UserAgentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ create?: string }>;
+}) {
+  const { create } = await searchParams;
   const session = await getSession();
 
   if (!session.authenticated || !session.user) {
@@ -29,7 +34,7 @@ export default async function UserAgentsPage() {
         </div>
       </header>
       <div className="opshelper-page-body">
-        <UserAgentCatalog initialAgents={snapshot.agents} />
+        <UserAgentCatalog initialAgents={snapshot.agents} startInCreate={create === "1"} />
       </div>
     </main>
   );

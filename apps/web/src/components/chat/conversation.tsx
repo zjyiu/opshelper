@@ -10,6 +10,7 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { toast } from "sonner";
 import type { ExecutionSummary } from "@opshelper/shared";
 
 import { AgentMark, type Assistant } from "./assistant";
@@ -21,7 +22,7 @@ import {
   partsText,
   safeStringify,
 } from "./format";
-import { IconChevron, IconPaperclip, IconTool } from "./icons";
+import { IconBranch, IconChevron, IconCopy, IconPaperclip, IconRetry, IconTool } from "./icons";
 import { renderAssistantMarkdown } from "./markdown";
 import type { ChatMessage, ChatPart } from "./message-model";
 import type { ConversationSurface } from "./conversation-surface";
@@ -82,6 +83,7 @@ export function Conversation({
   busy,
   sessionId,
   onRestartFrom,
+  onRetryFrom,
   forkingMessageId,
   executions,
   reconnecting,
@@ -95,6 +97,7 @@ export function Conversation({
   busy: boolean;
   sessionId: string | null;
   onRestartFrom: (message: ChatMessage) => void;
+  onRetryFrom?: (message: ChatMessage) => void;
   forkingMessageId: string | null;
   executions: ExecutionSummary[];
   reconnecting: boolean;
@@ -201,10 +204,15 @@ export function Conversation({
       ) : null}
       {surface === "new" && messages.length === 0 && !busy ? (
         <div className="opshelper-empty">
-          <h1 className="opshelper-empty-title">你好，我能帮什么忙吗？</h1>
+          <h1 className="opshelper-empty-title">
+            <span>你好，我能帮什么忙吗？</span>
+          </h1>
         </div>
       ) : null}
-      {surface === "ready" || surface === "new" ? turns.map((turn) => {
+      {surface === "ready" || surface === "new" ? turns.map((turn, index) => {
+        const precedingUserMessage = index > 0 && turns[index - 1].role === "user"
+          ? turns[index - 1].messages.at(-1)
+          : undefined;
         const message = turn.messages[0];
         return turn.role === "user" ? (
           <div key={turn.key} className="opshelper-msg opshelper-msg-user">
@@ -243,6 +251,10 @@ export function Conversation({
             busy={busy && turn.key === latestReply?.key}
             messageRef={turn.key === latestReply?.key ? latestReplyRef : undefined}
             onInspectOperations={stopFollowingOutput}
+            retryMessage={precedingUserMessage}
+            onRetry={onRetryFrom}
+            onBranch={onRestartFrom}
+            actionsDisabled={readOnly || busy || forkingMessageId !== null}
           />
         );
       }) : null}
@@ -300,6 +312,10 @@ const AssistantTurn = memo(function AssistantTurn({
   busy,
   messageRef,
   onInspectOperations,
+  retryMessage,
+  onRetry,
+  onBranch,
+  actionsDisabled,
 }: {
   turn: ConversationTurn;
   agentKey: string;
@@ -308,11 +324,16 @@ const AssistantTurn = memo(function AssistantTurn({
   busy: boolean;
   messageRef?: RefObject<HTMLDivElement | null>;
   onInspectOperations?: () => void;
+  retryMessage?: ChatMessage;
+  onRetry?: (message: ChatMessage) => void;
+  onBranch: (message: ChatMessage) => void;
+  actionsDisabled: boolean;
 }) {
   const parts = turnParts(turn);
   const visibleParts = parts.filter(partHasUserFacingContent);
   const operations = operationsFromParts(parts, agentKey);
   const errors = Array.from(new Set(turnErrors(turn).map(describeOpencodeError)));
+  const copyText = visibleParts.map((part) => part.text).join("\n\n").trim();
   const hasContent = visibleParts.length > 0 || operations.length > 0 || errors.length > 0;
   // 出错/空回复的“空壳”消息（只有 step-start 之类不可见 part）不渲染。
   if (!hasContent && !busy) return null;
@@ -332,6 +353,51 @@ const AssistantTurn = memo(function AssistantTurn({
           </div>
         ))}
         {busy && hasContent && errors.length === 0 ? <StreamingIndicator /> : null}
+        {!busy && !actionsDisabled && (copyText || retryMessage) ? (
+          <div className="opshelper-assistant-actions">
+            {copyText ? (
+              <button
+                type="button"
+                className="opshelper-assistant-action"
+                aria-label="复制回答"
+                title="复制回答"
+                onClick={async () => {
+                  try {
+                    if (!navigator.clipboard?.writeText) throw new Error("当前浏览器不支持复制");
+                    await navigator.clipboard.writeText(copyText);
+                    toast.success("回答已复制");
+                  } catch (error) {
+                    toast.error(error instanceof Error ? `复制失败：${error.message}` : "复制失败");
+                  }
+                }}
+              >
+                <IconCopy />
+              </button>
+            ) : null}
+            {retryMessage && onRetry ? (
+              <button
+                type="button"
+                className="opshelper-assistant-action"
+                aria-label="重试回答"
+                title="重试回答"
+                onClick={() => onRetry(retryMessage)}
+              >
+                <IconRetry />
+              </button>
+            ) : null}
+            {retryMessage ? (
+              <button
+                type="button"
+                className="opshelper-assistant-action"
+                aria-label="在新聊天中创建分支"
+                title="在新聊天中创建分支"
+                onClick={() => onBranch(retryMessage)}
+              >
+                <IconBranch />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

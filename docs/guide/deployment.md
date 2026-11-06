@@ -27,7 +27,7 @@ python3 scripts/opshelper.py status
 python3 scripts/opshelper.py down
 ```
 
-`init` 拒绝覆盖已有 `.env` 或非空数据目录。它在当前部署目录生成 `.env` 和 `data/`，写入宿主绝对路径、当前 UID/GID、随机数据库密码和随机管理员密码。配置文件权限为 600，不输出密码。账号为 `admin`，初始密码查看本机 `.env` 的 `OPSHELPER_ADMIN_PASSWORD`。不创建演示用户。`bootstrap` 仅允许空数据库；已有任意业务数据时拒绝运行。升级、重启和恢复不运行 seed，也不会重置管理员密码。
+`init` 拒绝覆盖已有 `.env` 或非空数据目录。它在当前部署目录生成 `.env` 和 `data/`，写入宿主绝对路径、当前 UID/GID、随机数据库密码和随机管理员密码。可通过 `--admin-password` 指定初始管理员密码（至少 6 位），例如 `python3 scripts/opshelper.py init --admin-password zjyzjy`；命令行参数可能被 shell 历史或进程列表记录，建议默认使用随机密码，或在安全环境中执行。配置文件权限为 600，不输出密码。账号为 `admin`，初始密码查看本机 `.env` 的 `OPSHELPER_ADMIN_PASSWORD`。不创建演示用户。`bootstrap` 仅允许空数据库；已有任意业务数据时拒绝运行。升级、重启和恢复不运行 seed，也不会重置管理员密码。
 
 默认访问 `http://127.0.0.1:8080/`。新目录也可以显式指定：
 

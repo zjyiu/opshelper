@@ -17,6 +17,7 @@ import {
   reconcileInterruptedExecution,
   replyConversationPermission,
   replyConversationQuestion,
+  searchConversationContent,
 } from "../lib/conversation-service";
 import { requireSession } from "../lib/session";
 
@@ -42,12 +43,19 @@ const createExecutionSchema = z.object({
   model: z.string().max(256).optional(),
   autoApprovePermissions: z.boolean().default(false),
 }).strict();
-const forkConversationSchema = z.object({ messageId: id }).strict();
+const forkConversationSchema = z.object({
+  messageId: id,
+  replaceExisting: z.boolean().optional(),
+}).strict();
 const questionReplySchema = z.object({
   answers: z.array(z.array(z.string().max(10_000)).max(20)).max(20),
 }).strict();
 const permissionReplySchema = z.object({
   response: z.enum(["once", "reject"]),
+}).strict();
+const conversationSearchQuerySchema = z.object({
+  query: z.string().trim().min(1).max(200),
+  agentKey: z.union([agentKey, z.array(agentKey).max(50)]).optional(),
 }).strict();
 
 function invalid(reply: FastifyReply, message = "请求内容不正确") {
@@ -64,6 +72,7 @@ function sendServiceError(error: unknown, reply: FastifyReply) {
 export interface ConversationRouteServices {
   requireSession: typeof requireSession;
   listConversationHome: typeof listConversationHome;
+  searchConversationContent: typeof searchConversationContent;
   createConversation: typeof createConversation;
   forkConversation: typeof forkConversation;
   getConversationSnapshot: typeof getConversationSnapshot;
@@ -81,6 +90,7 @@ export interface ConversationRouteServices {
 const defaultServices: ConversationRouteServices = {
   requireSession,
   listConversationHome,
+  searchConversationContent,
   createConversation,
   forkConversation,
   getConversationSnapshot,
@@ -108,6 +118,27 @@ export async function registerConversationRoutes(
     if (!user) return;
     return services.listConversationHome(user.id);
   });
+
+  app.get<{ Querystring: { query?: string; agentKey?: string | string[] } }>(
+    "/v1/conversations/search",
+    async (request, reply) => {
+      const user = await services.requireSession(request, reply);
+      if (!user) return;
+      const parsed = conversationSearchQuerySchema.safeParse(request.query);
+      if (!parsed.success) return invalid(reply);
+      try {
+        const agentKeys = parsed.data.agentKey === undefined
+          ? []
+          : Array.isArray(parsed.data.agentKey) ? parsed.data.agentKey : [parsed.data.agentKey];
+        return await services.searchConversationContent(user.id, {
+          query: parsed.data.query,
+          agentKeys,
+        });
+      } catch (error) {
+        return sendServiceError(error, reply);
+      }
+    },
+  );
 
   app.post("/v1/conversations", async (request, reply) => {
     const user = await services.requireSession(request, reply);
@@ -160,6 +191,7 @@ export async function registerConversationRoutes(
           userId: user.id,
           conversationId: request.params.conversationId,
           messageId: parsed.data.messageId,
+          replaceExisting: parsed.data.replaceExisting,
         }));
       } catch (error) {
         return sendServiceError(error, reply);

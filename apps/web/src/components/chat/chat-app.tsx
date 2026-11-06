@@ -15,6 +15,7 @@ import {
   createConversation,
   createExecution,
   forkConversation,
+  getChatModels,
   getConversation,
   reconcileExecution,
   replyExecutionPermission,
@@ -56,9 +57,7 @@ const ACTIVE_STATUSES: ExecutionSummary["status"][] = [
   "waiting_input",
 ];
 const CHAT_MODEL_KEY = "opshelper:model";
-const CHAT_AUTO_APPROVE_KEY = "opshelper:auto-approve-permissions";
 const CHAT_UPLOAD_DIR = "chat-uploads";
-const SCHEDULE_DRAFT_KEY = "opshelper:schedule-draft";
 
 function createClientId() {
   const webCrypto = globalThis.crypto;
@@ -165,8 +164,8 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   const { drafts, setDraft, updateDraft, moveDraft } = useConversationDraftStore();
   const failedDraftPrefix = `${conversationDraftKey(null, activeAgent?.key ?? null)}:failed:`;
   const failedDrafts = Object.entries(drafts).filter(([key]) => key.startsWith(failedDraftPrefix));
+  const [availableModels, setAvailableModels] = useState(models);
   const [model, setModel] = useState(defaultModel);
-  const [autoApprovePermissions, setAutoApprovePermissions] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // 首屏示例只能把文字放进草稿，输入框得自己抬起来；每次点击递增一次信号。
   const [composerFocus] = useState(0);
@@ -177,6 +176,8 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   const [streamDisconnected, setStreamDisconnected] = useState(false);
   const [streamState, setStreamState] = useState(() => createConversationStreamState(null));
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
+  const [pendingRetry, setPendingRetry] = useState<{ conversationId: string; cleanupWarning?: string } | null>(null);
+  const [streamGeneration, setStreamGeneration] = useState(0);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   const activeConversationRef = useRef<string | null>(null);
   const pendingRequestRef = useRef<{ signature: string; requestKey: string } | null>(null);
@@ -261,14 +262,34 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    // Refresh client-side route-cache data after model settings may have changed.
+    void getChatModels().then((settings) => {
+      if (cancelled) return;
+      setAvailableModels(settings.models);
+      setModel((current) =>
+        settings.models.some((item) => item.model === current)
+          ? current
+          : settings.defaultModel,
+      );
+    }).catch((error) => {
+      if (!cancelled) {
+        toast.error(error instanceof Error ? `加载模型列表失败：${error.message}` : "加载模型列表失败");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       const savedModel = localStorage.getItem(CHAT_MODEL_KEY);
-      if (savedModel && models.some((item) => item.model === savedModel)) setModel(savedModel);
-      setAutoApprovePermissions(localStorage.getItem(CHAT_AUTO_APPROVE_KEY) === "true");
+      if (savedModel && availableModels.some((item) => item.model === savedModel)) setModel(savedModel);
     } catch {
       // Browser storage may be unavailable.
     }
-  }, [models]);
+  }, [availableModels]);
 
   useEffect(() => {
     conversationGenerationRef.current += 1;
@@ -406,7 +427,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       if (frame !== null) cancelAnimationFrame(frame);
       if (refreshTimer !== null) clearTimeout(refreshTimer);
     };
-  }, [activeConversationId, refreshConversation]);
+  }, [activeConversationId, refreshConversation, streamGeneration]);
 
   useEffect(() => () => {
     for (const waiter of streamReadyWaitersRef.current) waiter.finish();
@@ -523,7 +544,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         text,
         readyAttachments,
         model,
-        autoApprovePermissions,
+        false,
       );
       if (pendingRequestRef.current?.signature !== signature) {
         pendingRequestRef.current = { signature, requestKey: createClientId() };
@@ -540,7 +561,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
           mime: item.mime,
         })),
         ...(model ? { model } : {}),
-        autoApprovePermissions,
+        autoApprovePermissions: false,
       });
       pendingRequestRef.current = null;
       await refreshHome(conversationId, { activate: false });
@@ -569,7 +590,6 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     activeAssistant,
     activateConversation,
     attachments,
-    autoApprovePermissions,
     currentMessages,
     draftKey,
     draftsReady,
@@ -662,7 +682,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       }));
   }, [directory]);
 
-  const restartFrom = useCallback(async (message: ChatMessage) => {
+  const restartFrom = useCallback(async (message: ChatMessage, retryImmediately = false) => {
     const sourceId = activeConversationRef.current;
     if (!sourceId || forkingRef.current || sendingRef.current || hasActiveExecution) return;
     forkingRef.current = true;
@@ -670,9 +690,9 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     setNotice(null);
     const generation = conversationGenerationRef.current;
     try {
-      const created = await forkConversation(sourceId, message.id);
-      // Seed the branch's own draft even if the user navigated away while it was created.
-      setDraft(conversationDraftKey(created.conversationId, created.leadAgentKey), {
+      const created = await forkConversation(sourceId, message.id, retryImmediately);
+      const destinationId = retryImmediately ? sourceId : created.conversationId;
+      setDraft(conversationDraftKey(destinationId, created.leadAgentKey), {
         input: created.text,
         attachments: created.attachments.map((attachment) => ({
           ...attachment,
@@ -687,6 +707,23 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         return;
       }
       pendingRequestRef.current = null;
+      if (retryImmediately) {
+        streamStateRef.current = createConversationStreamState(sourceId);
+        setStreamState(streamStateRef.current);
+        updateOptimisticMessages(() => []);
+        setSnapshot((current) => current ? { ...current, messages: [] } : current);
+        streamConnectionRef.current?.source.close();
+        streamConnectionRef.current = null;
+        setStreamGeneration((current) => current + 1);
+        const refreshed = await refreshConversation(sourceId);
+        if (!refreshed || activeConversationRef.current !== sourceId ||
+            generation !== conversationGenerationRef.current) return;
+        setPendingRetry({
+          conversationId: sourceId,
+          cleanupWarning: created.cleanupWarning,
+        });
+        return;
+      }
       // Navigate before activating so the old URL cannot reactivate the source.
       router.push(`/chat?conversation=${encodeURIComponent(created.conversationId)}`);
       await refreshHome(created.conversationId);
@@ -698,35 +735,33 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       forkingRef.current = false;
       setForkingMessageId(null);
     }
-  }, [hasActiveExecution, refreshHome, router, setDraft]);
+  }, [hasActiveExecution, refreshConversation, refreshHome, router, setDraft, updateOptimisticMessages]);
+
+  const retryResponse = useCallback((message: ChatMessage) => {
+    void restartFrom(message, true);
+  }, [restartFrom]);
+
+  useEffect(() => {
+    if (!pendingRetry) return;
+    if (activeConversationId !== pendingRetry.conversationId) {
+      if (!navigating) setPendingRetry(null);
+      return;
+    }
+    if (navigating || !draftsReady || forkingMessageId !== null || sendingRef.current || forkingRef.current) return;
+    setPendingRetry(null);
+    void (async () => {
+      await send();
+      if (pendingRetry.cleanupWarning && activeConversationRef.current === pendingRetry.conversationId) {
+        setNotice(pendingRetry.cleanupWarning);
+      }
+    })();
+  }, [activeConversationId, draftsReady, forkingMessageId, navigating, pendingRetry, send]);
 
   const currentExecution = visibleSnapshot?.executions.find((item) =>
     ACTIVE_STATUSES.includes(item.status),
   );
   const blocked = navigating || !draftsReady || conversationSurface === "loading" || conversationSurface === "unavailable" ||
     Boolean(visibleSnapshot?.conversation.recoveryRequired);
-
-  const createScheduleDraft = useCallback(() => {
-    if (!activeAssistant || (!input.trim() && readyAttachments.length === 0)) return;
-    try {
-      sessionStorage.setItem(SCHEDULE_DRAFT_KEY, JSON.stringify({
-        name: input.trim().replace(/\s+/g, " ").slice(0, 36),
-        prompt: input,
-        leadAgentKey: activeAssistant.id,
-        participantAgentKeys: [],
-        attachments: readyAttachments.map((item) => ({
-          path: item.path,
-          filename: item.filename,
-          mime: item.mime,
-        })),
-        model,
-        autoApprovePermissions,
-      }));
-      router.push("/schedules");
-    } catch {
-      setNotice("浏览器无法保存当前任务草稿");
-    }
-  }, [activeAssistant, autoApprovePermissions, input, model, readyAttachments, router]);
 
   if (loading) {
     return (
@@ -743,8 +778,8 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     return (
       <main className="opshelper-main">
         <div className="opshelper-boot opshelper-boot-contained">
-          <div className="opshelper-boot-text">管理员尚未给你分配智能体。</div>
-          <button className="opshelper-btn" onClick={() => void refreshHome()}>重新检查</button>
+          <div className="opshelper-boot-text">当前无可用智能体</div>
+          <button className="opshelper-btn" onClick={() => router.push("/agents?create=1")}>新建智能体</button>
         </div>
       </main>
     );
@@ -753,13 +788,16 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   return (
     <>
       <main className="opshelper-main">
-        <header className="opshelper-topbar">
+        <header className="opshelper-topbar opshelper-chat-topbar">
           <WorkspaceMenuButton />
-          <AgentMark id={activeAssistant.id} name={activeAssistant.name} description={activeAssistant.description} />
           <div className="opshelper-topbar-meta">
-            <div className="opshelper-topbar-title">{visibleSnapshot?.conversation.title || activeAssistant.name}</div>
-            <div className="opshelper-topbar-sub">
-              {visibleSnapshot ? activeAssistant.name : activeAssistant.description}
+            <div className="opshelper-chat-agent-title">
+              <AgentMark
+                id={activeAssistant.id}
+                name={activeAssistant.name}
+                description={activeAssistant.description}
+              />
+              <span>{activeAssistant.name}</span>
             </div>
           </div>
           <button
@@ -781,6 +819,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             busy={sending || hasActiveExecution || forkingMessageId !== null}
             sessionId={activeConversationId}
             onRestartFrom={restartFrom}
+            onRetryFrom={retryResponse}
             forkingMessageId={forkingMessageId}
             executions={visibleSnapshot?.executions ?? []}
             reconnecting={snapshotUnavailable || streamDisconnected}
@@ -853,21 +892,12 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             queueHint={hasActiveExecution}
             submitting={sending}
             stopping={stopping}
-            models={models}
+            models={availableModels}
             model={model}
             onModelChange={(next) => {
               setModel(next);
               try {
                 localStorage.setItem(CHAT_MODEL_KEY, next);
-              } catch {
-                // Browser storage may be unavailable.
-              }
-            }}
-            autoApprovePermissions={autoApprovePermissions}
-            onAutoApprovePermissionsChange={(enabled) => {
-              setAutoApprovePermissions(enabled);
-              try {
-                localStorage.setItem(CHAT_AUTO_APPROVE_KEY, String(enabled));
               } catch {
                 // Browser storage may be unavailable.
               }
@@ -879,7 +909,6 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
               current.filter((item) => item.id !== id))}
             onSearchFiles={searchFiles}
             onMention={mention}
-            onSchedule={createScheduleDraft}
           />
         </div>
       </main>

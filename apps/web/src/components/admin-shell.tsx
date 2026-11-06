@@ -12,19 +12,24 @@ import {
   useState,
   type ReactNode,
   type RefObject,
+  type CSSProperties,
 } from "react";
 
 import {
   IconAgent,
   IconArrowLeft,
   IconContainer,
+  IconClose,
   IconMenu,
   IconSkill,
   IconUsers,
 } from "./chat/icons";
+import { UserProfileMenu } from "./user-profile-menu";
 
 // 与 chat.css 里侧栏改为抽屉的断点保持一致。
 const DRAWER_MEDIA_QUERY = "(max-width: 640px)";
+const SIDEBAR_WIDTH = { min: 220, max: 420, fallback: 280 };
+const SIDEBAR_WIDTH_KEY = "opshelper.sideWidth";
 
 type AdminUser = {
   name: string;
@@ -40,7 +45,7 @@ type AdminNavItem = {
 };
 
 // 管理控制台与工作台共用同一副外壳（.opshelper-shell / .opshelper-sidebar），
-// 只有侧栏内容按区域替换：这里列出三个管理分区，工作台入口放在下方一组。
+// 只有侧栏内容按区域替换；工作台返回入口放在侧栏底部。
 // 账户设置不作为独立分区，从右下角用户名进入。
 const ADMIN_NAV: AdminNavItem[] = [
   {
@@ -98,10 +103,25 @@ export function AdminShell({
   const pathname = usePathname();
   const [showSidebar, setShowSidebar] = useState(false);
   const [isDrawer, setIsDrawer] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_WIDTH.fallback);
   const sidebarRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const savedWidth = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+      if (savedWidth) {
+        const width = Number(savedWidth);
+        setSidebarWidth(Number.isFinite(width)
+          ? Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, Math.round(width)))
+          : SIDEBAR_WIDTH.fallback);
+      }
+    } catch {
+      // Match the workspace default when browser storage is unavailable.
+    }
+  }, []);
 
   // 抽屉只在窄屏成立：宽屏下侧栏常驻，不需要焦点管理。
   useEffect(() => {
@@ -162,7 +182,10 @@ export function AdminShell({
 
   return (
     <AdminShellContext.Provider value={contextValue}>
-      <div className={`opshelper-shell opshelper-console-shell${showSidebar ? " opshelper-sidebar-open" : ""}`}>
+      <div
+        className={`opshelper-shell opshelper-console-shell${showSidebar ? " opshelper-sidebar-open" : ""}`}
+        style={{ "--g-side-user": `${sidebarWidth}px` } as CSSProperties}
+      >
         <aside
           ref={sidebarRef}
           className="opshelper-sidebar"
@@ -198,28 +221,18 @@ export function AdminShell({
               })}
             </div>
 
-            <div className="opshelper-lib">
-              <div className="opshelper-console-label">工作台</div>
-              <Link
-                className="opshelper-assistant"
-                href="/chat"
-                onClick={() => setShowSidebar(false)}
-              >
-                <span className="opshelper-lib-icon"><IconArrowLeft /></span>
-                <span className="opshelper-assistant-text">
-                  <span className="opshelper-assistant-name">返回工作台</span>
-                  <span className="opshelper-assistant-desc">回到对话与文件</span>
-                </span>
-              </Link>
-            </div>
           </nav>
 
           <div className="opshelper-userbar">
-            <span className="opshelper-user-avatar">
-              {Array.from(user.name.trim() || user.username)[0]?.toUpperCase()}
-            </span>
-            <Link className="opshelper-user-name" href="/admin/account" title="账户设置">
-              {user.name}
+            <UserProfileMenu user={user} />
+            <Link
+              className="opshelper-admin-return-link"
+              href="/chat"
+              aria-label="返回对话"
+              title="返回对话"
+              onClick={() => setShowSidebar(false)}
+            >
+              <IconArrowLeft />
             </Link>
           </div>
         </aside>
@@ -282,6 +295,9 @@ export function AdminPage({
           <h1 className="opshelper-topbar-title">{title}</h1>
           <div className="opshelper-topbar-sub">{subtitle}</div>
         </div>
+        <Link className="opshelper-admin-close" href="/chat" aria-label="返回对话" title="返回对话">
+          <IconClose />
+        </Link>
       </header>
       <div className="opshelper-page-body">
         {children}

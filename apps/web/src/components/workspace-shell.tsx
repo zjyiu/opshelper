@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   createContext,
@@ -12,44 +13,45 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type ReactNode,
 } from "react";
-import type { ConversationAgent, ConversationSummary } from "@opshelper/shared";
+import type {
+  ConversationAgent,
+  ConversationSearchResult,
+  ConversationSummary,
+} from "@opshelper/shared";
 
 import {
   archiveConversation,
   renameConversation,
   getConversation,
   listConversations,
+  searchConversations,
 } from "@/lib/browser-api";
 import { AgentMark } from "./chat/assistant";
-import { resolveConversationHistory, RECENT_CONVERSATION_LIMIT } from "./chat/conversation-history";
+import { groupConversationsByAgent } from "./chat/conversation-groups";
 import { cleanTitle, formatConversationTime, formatConversationTimestamp, fullConversationTitle } from "./chat/format";
 import type { NewConversationRequest } from "./chat/new-conversation-request";
 import {
-  IconChat,
   IconAgent,
   IconChevron,
   IconClock,
+  IconClose,
   IconCompose,
-  IconDisclosure,
   IconEdit,
   IconFolder,
   IconMenu,
+  IconPlus,
   IconSidePanel,
   IconSearch,
 } from "./chat/icons";
 import { ConversationArchiveAction } from "./chat/conversation-archive-action";
 import { ConversationDraftProvider, useConversationDraftStore } from "./chat/conversation-draft-provider";
 import { conversationDraftKey, hasDraft } from "./chat/conversation-drafts";
+import { UserProfileMenu } from "./user-profile-menu";
 
 const CHAT_CONTEXT_KEY = "opshelper:conversation";
 const CHAT_AGENT_KEY = "opshelper:agent";
-// “显示更早”按钮要从可用高度里扣掉：展开过一次后量它的真实高度，
-// 首次渲染时按钮还没挂载，用与 CSS 对齐的兜底值（行高 40 + 外边距 6）。
-const FOLD_RESERVE_FALLBACK = 46;
-const FOLD_BUTTON_GAP = 6;
 
 type WorkspaceUser = {
   name: string;
@@ -73,7 +75,7 @@ interface WorkspaceContextValue {
   activateConversation: (conversationId: string, agentKey?: string) => void;
   updateConversation: (conversation: ConversationSummary) => void;
   selectAgent: (agentKey: string) => void;
-  startNewConversation: (prefill?: string) => void;
+  startNewConversation: (prefill?: string, agentKey?: string) => void;
   removeConversation: (conversationId: string) => Promise<void>;
   setShowAttachments: (value: boolean | ((current: boolean) => boolean)) => void;
   setShowSidebar: (value: boolean) => void;
@@ -298,13 +300,18 @@ export function WorkspaceShell({
     }
   }, [activateConversation, agents, clearActiveConversation, conversations, pathname, router, setActiveAgent]);
 
-  const startNewConversation = useCallback((prefill = "") => {
+  const startNewConversation = useCallback((prefill = "", agentKey?: string) => {
+    if (agentKey) {
+      const agent = agents.find((item) => item.key === agentKey);
+      if (!agent) return;
+      setActiveAgent(agent.key);
+    }
     clearActiveConversation();
     setShowSidebar(false);
     newConversationSequenceRef.current += 1;
     setNewConversationRequest({ id: newConversationSequenceRef.current, prefill });
     router.push(`/chat?new=${Date.now()}`);
-  }, [clearActiveConversation, router]);
+  }, [agents, clearActiveConversation, router, setActiveAgent]);
 
   const acknowledgeNewConversationRequest = useCallback((requestId: number) => {
     setNewConversationRequest((current) => current?.id === requestId ? null : current);
@@ -395,7 +402,7 @@ export function WorkspaceShell({
               <IconSidePanel />
             </button>
           ) : (
-            <ColumnResizer edge="side" range={SIDE_WIDTH} width={sideWidth} label="调整会话列表宽度" onChange={changeSideWidth} />
+            <ColumnResizer edge="side" range={SIDE_WIDTH} width={sideWidth} label="调整对话列表宽度" onChange={changeSideWidth} />
           )}
           {showAttachments ? (
             <ColumnResizer edge="art" range={ART_WIDTH} width={artWidth} label="调整文件列表宽度" onChange={changeArtWidth} />
@@ -523,7 +530,6 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
     activeConversationId,
     loading,
     executionBlockedReason,
-    selectAgent,
     startNewConversation,
     removeConversation,
     renameConversationTitle,
@@ -532,8 +538,15 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   } = useWorkspace();
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
-  const [showAllConversations, setShowAllConversations] = useState(false);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [selectedSearchAgentKeys, setSelectedSearchAgentKeys] = useState<string[] | null>(null);
+  const [searchAgentMenuOpen, setSearchAgentMenuOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [newConversationMenuOpen, setNewConversationMenuOpen] = useState(false);
+  const [expandedAgentKey, setExpandedAgentKey] = useState<string | null>(null);
   const [archiveConversationId, setArchiveConversationId] = useState<string | null>(null);
   const closeArchive = useCallback(() => setArchiveConversationId(null), []);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -556,95 +569,163 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
 
   useEffect(() => {
     closeArchive();
-  }, [activeAgent?.key, activeConversationId, pathname, search, showAllConversations, showSidebar, closeArchive]);
-  // 折叠后能列几条由可用高度决定，先按 RECENT_CONVERSATION_LIMIT 兜底，量到高度后再铺满。
-  const [collapsedCapacity, setCollapsedCapacity] = useState(RECENT_CONVERSATION_LIMIT);
-  const menuId = useId();
+  }, [activeAgent?.key, activeConversationId, pathname, search, showSidebar, closeArchive]);
   const conversationListId = useId();
-  const conversationListRef = useRef<HTMLDivElement>(null);
-  const selectorRef = useRef<HTMLButtonElement>(null);
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const selectorWrapRef = useRef<HTMLDivElement>(null);
+  const newConversationMenuId = useId();
+  const newConversationButtonRef = useRef<HTMLButtonElement>(null);
+  const newConversationMenuRef = useRef<HTMLDivElement>(null);
+  const newConversationOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
-    if (!agentMenuOpen) return;
-    const selectedIndex = Math.max(0, agents.findIndex((item) => item.key === activeAgent?.key));
-    requestAnimationFrame(() => optionRefs.current[selectedIndex]?.focus());
+    if (!newConversationMenuOpen) return;
+    requestAnimationFrame(() => newConversationOptionRefs.current[0]?.focus());
     const onPointerDown = (event: PointerEvent) => {
-      if (!selectorWrapRef.current?.contains(event.target as Node)) setAgentMenuOpen(false);
+      if (!newConversationMenuRef.current?.contains(event.target as Node)) {
+        setNewConversationMenuOpen(false);
+      }
     };
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [activeAgent?.key, agentMenuOpen, agents]);
+  }, [newConversationMenuOpen]);
 
-  const activeConversations = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return conversations.filter((item) =>
-      item.leadAgentKey === activeAgent?.key &&
-      (!term || item.title.toLowerCase().includes(term)));
-  }, [activeAgent?.key, conversations, search]);
+  const closeSearch = useCallback(() => {
+    setSearch("");
+    setSearchOpen(false);
+    setSelectedSearchAgentKeys(null);
+    setSearchAgentMenuOpen(false);
+    setSearchResults([]);
+    setSearchError(null);
+    requestAnimationFrame(() => searchButtonRef.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeSearch();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeSearch, searchOpen]);
 
   const searchTerm = search.trim();
-  // 分区标题上的条数：搜索时就是命中数，与列表里真正渲染的条数一致。
-  const visibleCount = activeConversations.length;
-  const {
-    listed: listedConversations,
-    earlierCount,
-    expandable,
-    expanded: conversationsExpanded,
-  } = resolveConversationHistory(activeConversations, {
-    activeConversationId,
-    searchTerm,
-    showAll: showAllConversations,
-    limit: collapsedCapacity,
-  });
-
-  // 侧栏是固定高度的可伸缩区域，能列几条会话只有量过才知道：按行高和容器高度算出折叠窗口，
-  // 并预留“显示更早”按钮的位置，折叠状态就既不浪费空位也不会冒出滚动条。
   useEffect(() => {
-    const list = conversationListRef.current;
-    if (!list) return;
-    const measure = () => {
-      const rowHeight = list.querySelector<HTMLElement>(".opshelper-conv")?.offsetHeight ?? 0;
-      if (!rowHeight) return;
-      const fold = list.querySelector<HTMLElement>(".opshelper-conv-more");
-      const reserve = fold ? fold.offsetHeight + FOLD_BUTTON_GAP : FOLD_RESERVE_FALLBACK;
-      const capacity = Math.floor((list.clientHeight - reserve) / rowHeight);
-      setCollapsedCapacity(Math.max(1, capacity));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(list);
-    return () => observer.disconnect();
-  }, [activeConversations.length]);
-
-  const chooseAgent = (agentKey: string) => {
-    selectAgent(agentKey);
-    setAgentMenuOpen(false);
-    requestAnimationFrame(() => selectorRef.current?.focus());
-  };
-
-  const handleOptionKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setAgentMenuOpen(false);
-      selectorRef.current?.focus();
+    if (!searchOpen || !searchTerm) {
+      setSearchResults([]);
+      setSearchError(null);
+      setSearchLoading(false);
       return;
     }
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const next = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? agents.length - 1
-        : (index + (event.key === "ArrowDown" ? 1 : -1) + agents.length) % agents.length;
-    optionRefs.current[next]?.focus();
+    let cancelled = false;
+    setSearchLoading(true);
+    setSearchError(null);
+    const timer = window.setTimeout(() => {
+      void searchConversations(searchTerm, selectedSearchAgentKeys ?? [])
+        .then((results) => {
+          if (!cancelled) setSearchResults(results);
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setSearchResults([]);
+            setSearchError(error instanceof Error ? error.message : "搜索失败，请重试");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setSearchLoading(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchOpen, searchTerm, selectedSearchAgentKeys]);
+
+  const selectedSearchAgentCount = selectedSearchAgentKeys?.length ?? agents.length;
+  const searchAgentLabel = selectedSearchAgentCount === agents.length
+    ? "全部智能体"
+    : `已选 ${selectedSearchAgentCount} 个智能体`;
+
+  const highlightSearchMatch = (text: string) => {
+    const term = searchTerm.toLocaleLowerCase();
+    const normalized = text.toLocaleLowerCase();
+    const nodes: ReactNode[] = [];
+    let cursor = 0;
+    let matchIndex = normalized.indexOf(term);
+    while (term && matchIndex >= 0) {
+      if (matchIndex > cursor) nodes.push(text.slice(cursor, matchIndex));
+      nodes.push(
+        <mark className="opshelper-search-match" key={`${matchIndex}-${cursor}`}>
+          {text.slice(matchIndex, matchIndex + term.length)}
+        </mark>,
+      );
+      cursor = matchIndex + term.length;
+      matchIndex = normalized.indexOf(term, cursor);
+    }
+    if (cursor < text.length) nodes.push(text.slice(cursor));
+    return nodes;
+  };
+
+  const toggleSearchAgent = (agentKey: string) => {
+    const currentlySelected = selectedSearchAgentKeys ?? agents.map((agent) => agent.key);
+    if (currentlySelected.length === 1 && currentlySelected[0] === agentKey) return;
+    const next = currentlySelected.includes(agentKey)
+      ? currentlySelected.filter((key) => key !== agentKey)
+      : [...currentlySelected, agentKey];
+    if (next.length === agents.length) {
+      setSelectedSearchAgentKeys(null);
+    } else {
+      setSelectedSearchAgentKeys(next);
+    }
+  };
+
+  const conversationGroups = useMemo(
+    () => groupConversationsByAgent(conversations, agents),
+    [agents, conversations],
+  );
+  const currentAgentGroupKey = conversationGroups.find((group) =>
+    group.conversations.some((item) => item.id === activeConversationId))?.agentKey
+    ?? conversationGroups.find((group) => group.agentKey === activeAgent?.key)?.agentKey
+    ?? conversationGroups[0]?.agentKey
+    ?? null;
+
+  useEffect(() => {
+    setExpandedAgentKey(currentAgentGroupKey);
+  }, [activeAgent?.key, activeConversationId, currentAgentGroupKey]);
+
+  const toggleConversationGroup = (agentKey: string) => {
+    const currentlyExpanded = expandedAgentKey ?? currentAgentGroupKey;
+    setExpandedAgentKey(currentlyExpanded === agentKey ? "" : agentKey);
+  };
+
+  const expandConversationGroup = (agentKey: string) => {
+    setExpandedAgentKey(agentKey);
+  };
+
+  const chooseAgentForNewConversation = (agentKey: string) => {
+    setNewConversationMenuOpen(false);
+    startNewConversation("", agentKey);
   };
 
   return (
+    <>
     <aside className="opshelper-sidebar" id="opshelper-sidebar" aria-label="小信运维助手导航">
       <div className="opshelper-brand">
         <span className="opshelper-brand-name">小信运维助手</span>
+        <button
+          ref={searchButtonRef}
+          type="button"
+          className={`opshelper-search-toggle${searchOpen ? " active" : ""}`}
+          aria-label={searchOpen ? "收起搜索" : "搜索对话"}
+          aria-expanded={searchOpen}
+          aria-haspopup="dialog"
+          title="搜索对话"
+          onClick={() => {
+            if (searchOpen) closeSearch();
+            else setSearchOpen(true);
+          }}
+        >
+          <IconSearch />
+        </button>
         <button
           className="opshelper-sidebar-collapse"
           type="button"
@@ -657,47 +738,49 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
       </div>
 
       <div className="opshelper-side-group">
-        <div className="opshelper-agent-selector" ref={selectorWrapRef}>
+        <div className="opshelper-new-conversation-picker" ref={newConversationMenuRef}>
           <button
-            ref={selectorRef}
+            ref={newConversationButtonRef}
             type="button"
-            className="opshelper-agent-selector-button"
-            aria-haspopup="listbox"
-            aria-expanded={agentMenuOpen}
-            aria-controls={menuId}
+            className="opshelper-new-conversation"
             disabled={loading || agents.length === 0}
-            // 窄栏里描述总被截断，所以触发按钮只留名字，完整描述放下拉项和 title。
-            title={activeAgent ? `${activeAgent.name}：${activeAgent.description}` : "请联系管理员分配智能体"}
-            onClick={() => setAgentMenuOpen((value) => !value)}
+            aria-haspopup="menu"
+            aria-expanded={newConversationMenuOpen}
+            aria-controls={newConversationMenuOpen ? newConversationMenuId : undefined}
+            onClick={() => setNewConversationMenuOpen((open) => !open)}
             onKeyDown={(event) => {
-              if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+              if (event.key === "Escape" && newConversationMenuOpen) {
                 event.preventDefault();
-                setAgentMenuOpen(true);
+                setNewConversationMenuOpen(false);
               }
             }}
           >
-            {activeAgent ? (
-              <AgentMark
-                id={activeAgent.key}
-                name={activeAgent.name}
-                description={activeAgent.description}
-              />
-            ) : <span className="opshelper-agent-mark" />}
-            <span className="opshelper-agent-name">{activeAgent?.name ?? "暂无可用智能体"}</span>
-            <IconChevron open={agentMenuOpen} />
+            <IconCompose />
+            <span>新建对话</span>
           </button>
-          {agentMenuOpen ? (
-            <div className="opshelper-agent-menu" id={menuId} role="listbox" aria-label="切换智能体">
+          {newConversationMenuOpen ? (
+            <div
+              className="opshelper-new-conversation-menu"
+              id={newConversationMenuId}
+              role="menu"
+              aria-label="选择智能体以新建对话"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setNewConversationMenuOpen(false);
+                  newConversationButtonRef.current?.focus();
+                }
+              }}
+            >
+              <div className="opshelper-new-conversation-hint">选择智能体</div>
               {agents.map((agent, index) => (
                 <button
                   key={agent.key}
-                  ref={(element) => { optionRefs.current[index] = element; }}
+                  ref={(element) => { newConversationOptionRefs.current[index] = element; }}
                   type="button"
-                  className={`opshelper-agent-option${agent.key === activeAgent?.key ? " active" : ""}`}
-                  role="option"
-                  aria-selected={agent.key === activeAgent?.key}
-                  onClick={() => chooseAgent(agent.key)}
-                  onKeyDown={(event) => handleOptionKey(event, index)}
+                  className="opshelper-new-conversation-option"
+                  role="menuitem"
+                  onClick={() => chooseAgentForNewConversation(agent.key)}
                 >
                   <AgentMark id={agent.key} name={agent.name} description={agent.description} />
                   <span className="opshelper-assistant-text">
@@ -709,16 +792,6 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
             </div>
           ) : null}
         </div>
-
-        <button
-          type="button"
-          className="opshelper-new-conversation"
-          disabled={!activeAgent}
-          onClick={() => startNewConversation()}
-        >
-          <IconCompose />
-          <span>新建会话</span>
-        </button>
 
         <div className="opshelper-shortcuts">
           <Link
@@ -755,165 +828,138 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
       </div>
 
       <div className="opshelper-side-label">
-        <span>会话</span>
-        {!loading && visibleCount > 0 ? <span className="opshelper-side-count">{visibleCount}</span> : null}
-        <button
-          type="button"
-          className={`opshelper-search-toggle${searchOpen ? " active" : ""}`}
-          onMouseDown={(event) => event.preventDefault()}
-          aria-label={searchOpen ? "收起搜索" : "搜索会话"}
-          aria-expanded={searchOpen}
-          title="搜索会话"
-          onClick={() => {
-            if (searchOpen) setSearch("");
-            setSearchOpen(!searchOpen);
-          }}
-        >
-          <IconSearch />
-        </button>
+        <span>对话</span>
       </div>
 
-      {searchOpen ? (
-        <div className="opshelper-search">
-          <IconSearch />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setSearch("");
-                setSearchOpen(false);
-              }
-            }}
-            placeholder="搜索会话"
-            aria-label="搜索当前智能体的会话"
-            onBlur={() => {
-              if (!search.trim()) setSearchOpen(false);
-            }}
-            autoFocus
-          />
-        </div>
-      ) : null}
-
-      <nav className="opshelper-nav" aria-label="当前智能体的会话和用户功能">
-        <div className="opshelper-current-conversations" id={conversationListId} ref={conversationListRef}>
-          {loading ? <div className="opshelper-conv-empty">正在读取会话…</div> : null}
-          {!loading && activeConversations.length === 0 ? (
-            <div className="opshelper-conv-empty">{searchTerm ? "没有匹配的会话" : "暂无会话"}</div>
+      <nav className="opshelper-nav" aria-label="所有智能体的对话和用户功能">
+        <div className="opshelper-current-conversations">
+          {loading ? <div className="opshelper-conv-empty">正在读取对话…</div> : null}
+          {!loading && conversationGroups.length === 0 ? (
+            <div className="opshelper-conv-empty">暂无对话</div>
           ) : null}
-          {listedConversations.map((item) => (
-            <div className={`opshelper-conv${pathname.endsWith("/chat") && item.id === activeConversationId ? " active" : ""}`} key={item.id}>
-              {/* 让最终生效的 URL 驱动会话切换。若先改 activeConversationId，快速跨页点击时
-                  前一次路由可能在会话请求期间提交，聊天页便会遗留在加载态。 */}
-              {renamingId === item.id ? (
-                <div className="opshelper-conv-main opshelper-conv-renaming">
-                  <IconChat />
-                  <input
-                    className="opshelper-conv-rename-input"
-                    value={renameValue}
-                    maxLength={120}
-                    autoFocus
-                    aria-label="会话名称"
-                    onFocus={(event) => event.currentTarget.select()}
-                    onChange={(event) => setRenameValue(event.target.value)}
-                    onBlur={() => void commitRename(item)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        void commitRename(item);
-                      } else if (event.key === "Escape") {
-                        event.preventDefault();
-                        setRenamingId(null);
-                      }
-                    }}
-                  />
+          {conversationGroups.map((group, index) => {
+            const expanded = expandedAgentKey === null
+              ? group.agentKey === currentAgentGroupKey
+              : expandedAgentKey === group.agentKey;
+            const groupId = `${conversationListId}-${index}`;
+            return (
+              <section className="opshelper-conversation-group" key={group.agentKey}>
+                <div className="opshelper-conversation-agent-row">
+                  <button
+                    className="opshelper-conversation-agent"
+                    type="button"
+                    aria-expanded={expanded}
+                    aria-controls={expanded ? groupId : undefined}
+                    onClick={() => toggleConversationGroup(group.agentKey)}
+                  >
+                    <AgentMark
+                      id={group.agentKey}
+                      name={group.agentName}
+                      description={group.agentDescription}
+                    />
+                    <span className="opshelper-conversation-agent-name">{group.agentName}</span>
+                  </button>
+                  <button
+                    className="opshelper-conversation-agent-add"
+                    type="button"
+                    aria-label={`为${group.agentName}新建对话`}
+                    title={`为${group.agentName}新建对话`}
+                    onClick={() => startNewConversation("", group.agentKey)}
+                  >
+                    <IconPlus />
+                  </button>
                 </div>
-              ) : (
-              <Link
-                className="opshelper-conv-main"
-                href={`/chat?conversation=${encodeURIComponent(item.id)}`}
-                onClick={() => setShowSidebar(false)}
-                // 侧栏标题单行截断（字号抬高后更早截断），完整标题用原生提示补上。
-                title={fullConversationTitle(item.title)}
-                aria-current={pathname.endsWith("/chat") && item.id === activeConversationId ? "page" : undefined}
-              >
-                <IconChat />
-                <span className="opshelper-conv-copy">
-                  <span className="opshelper-conv-label">
-                    {cleanTitle(item.title)}
-                    {item.source && item.source !== "chat" ? <small>定时</small> : null}
-                  </span>
-                  {hasDraft(drafts[conversationDraftKey(item.id, item.leadAgentKey)]) ? <small className="opshelper-conv-draft">草稿</small> : null}
-                  <span className="opshelper-conv-time" title={formatConversationTimestamp(item.updatedAt)}>
-                    {formatConversationTime(item.updatedAt)}
-                  </span>
-                </span>
-              </Link>
-              )}
-              {renamingId === item.id ? null : (
-                <button
-                  type="button"
-                  className="opshelper-conv-del opshelper-conv-edit"
-                  aria-label={`重命名会话 ${cleanTitle(item.title)}`}
-                  title="重命名"
-                  onClick={() => {
-                    setRenameValue(cleanTitle(item.title));
-                    setRenamingId(item.id);
-                  }}
-                >
-                  <IconEdit />
-                </button>
-              )}
-              <ConversationArchiveAction
-                title={item.title}
-                open={archiveConversationId === item.id}
-                onOpen={() => setArchiveConversationId(item.id)}
-                onClose={closeArchive}
-                onArchive={() => removeConversation(item.id)}
-              />
-            </div>
-          ))}
-
-          {expandable && !conversationsExpanded ? (
-            <button
-              type="button"
-              className="opshelper-conv-more"
-              aria-expanded={false}
-              aria-controls={conversationListId}
-              onClick={() => setShowAllConversations(true)}
-            >
-              <span>显示更早的 {earlierCount} 条会话</span>
-              <IconDisclosure expanded={false} />
-            </button>
-          ) : null}
-          {conversationsExpanded ? (
-            <button
-              type="button"
-              className="opshelper-conv-more"
-              aria-expanded
-              aria-controls={conversationListId}
-              onClick={() => setShowAllConversations(false)}
-            >
-              <span>收起更早的会话</span>
-              <IconDisclosure expanded />
-            </button>
-          ) : null}
+                {expanded ? (
+                  <div className="opshelper-conversation-group-list" id={groupId}>
+                    {group.conversations.map((item) => (
+                      <div
+                        className={`opshelper-conv${pathname.endsWith("/chat") && item.id === activeConversationId ? " active" : ""}`}
+                        key={item.id}
+                      >
+                        {/* 让最终生效的 URL 驱动会话切换。若先改 activeConversationId，快速跨页点击时
+                            前一次路由可能在会话请求期间提交，聊天页便会遗留在加载态。 */}
+                        {renamingId === item.id ? (
+                          <div className="opshelper-conv-main opshelper-conv-renaming">
+                            <input
+                              className="opshelper-conv-rename-input"
+                              value={renameValue}
+                              maxLength={120}
+                              autoFocus
+                              aria-label="对话名称"
+                              onFocus={(event) => event.currentTarget.select()}
+                              onChange={(event) => setRenameValue(event.target.value)}
+                              onBlur={() => void commitRename(item)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  void commitRename(item);
+                                } else if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  setRenamingId(null);
+                                }
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <Link
+                            className="opshelper-conv-main"
+                            href={`/chat?conversation=${encodeURIComponent(item.id)}`}
+                            onClick={() => {
+                              setShowSidebar(false);
+                              expandConversationGroup(item.leadAgentKey);
+                            }}
+                            // 侧栏标题单行截断（字号抬高后更早截断），完整标题用原生提示补上。
+                            title={fullConversationTitle(item.title)}
+                            aria-current={pathname.endsWith("/chat") && item.id === activeConversationId ? "page" : undefined}
+                          >
+                            <span className="opshelper-conv-copy">
+                              <span className="opshelper-conv-label">
+                                {cleanTitle(item.title)}
+                                {item.source && item.source !== "chat" ? <small>定时</small> : null}
+                              </span>
+                              {hasDraft(drafts[conversationDraftKey(item.id, item.leadAgentKey)]) ? <small className="opshelper-conv-draft">草稿</small> : null}
+                              <span className="opshelper-conv-time" title={formatConversationTimestamp(item.updatedAt)}>
+                                {formatConversationTime(item.updatedAt)}
+                              </span>
+                            </span>
+                          </Link>
+                        )}
+                        {renamingId === item.id ? null : (
+                          <button
+                            type="button"
+                            className="opshelper-conv-del opshelper-conv-edit"
+                            aria-label={`重命名对话 ${cleanTitle(item.title)}`}
+                            title="重命名"
+                            onClick={() => {
+                              setRenameValue(cleanTitle(item.title));
+                              setRenamingId(item.id);
+                            }}
+                          >
+                            <IconEdit />
+                          </button>
+                        )}
+                        <ConversationArchiveAction
+                          title={item.title}
+                          open={archiveConversationId === item.id}
+                          onOpen={() => setArchiveConversationId(item.id)}
+                          onClose={closeArchive}
+                          onArchive={() => removeConversation(item.id)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            );
+          })}
         </div>
 
         {executionBlockedReason ? <div className="opshelper-sidebar-notice">{executionBlockedReason}</div> : null}
       </nav>
 
       <div className="opshelper-userbar">
-        <span className="opshelper-user-avatar">{Array.from(user.name.trim() || user.username)[0]?.toUpperCase()}</span>
-        <Link
-          className={`opshelper-user-name${pathname.endsWith("/user") ? " active" : ""}`}
-          href="/user"
-          aria-current={pathname.endsWith("/user") ? "page" : undefined}
-          title="个人设置"
-        >
-          {user.name}
-        </Link>
-        {user.role === "admin" ? (
+          <UserProfileMenu user={user} />
+          {user.role === "admin" ? (
           <Link className="opshelper-admin-link" href="/admin" title="管理" aria-label="管理">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
@@ -923,5 +969,112 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
         ) : null}
       </div>
     </aside>
+    {searchOpen && typeof document !== "undefined" ? createPortal(
+      <div className="opshelper-search-overlay" onMouseDown={closeSearch}>
+        <section
+          className="opshelper-search-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label="搜索对话"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="opshelper-search-dialog-bar">
+            <IconSearch />
+            <input
+              ref={searchInputRef}
+              value={search}
+              maxLength={200}
+              onChange={(event) => setSearch(event.target.value)}
+              onFocus={() => setSearchAgentMenuOpen(false)}
+              onClick={() => setSearchAgentMenuOpen(false)}
+              placeholder="搜索对话内容..."
+              aria-label="搜索所有对话"
+            />
+            <div className="opshelper-search-agent-filter">
+              <button
+                type="button"
+                className="opshelper-search-agent-filter-toggle"
+                aria-haspopup="dialog"
+                aria-expanded={searchAgentMenuOpen}
+                onClick={() => setSearchAgentMenuOpen((open) => !open)}
+              >
+                {searchAgentLabel}
+                <IconChevron open={searchAgentMenuOpen} />
+              </button>
+              {searchAgentMenuOpen ? (
+                <div className="opshelper-search-agent-menu" role="dialog" aria-label="筛选智能体">
+                  <div className="opshelper-search-agent-menu-header">
+                    <span>选择智能体</span>
+                    <button
+                      type="button"
+                      className="opshelper-search-agent-select-all"
+                      disabled={selectedSearchAgentCount === agents.length}
+                      onClick={() => setSelectedSearchAgentKeys(null)}
+                    >
+                      全选
+                    </button>
+                  </div>
+                  {agents.map((agent) => {
+                    const checked = selectedSearchAgentKeys === null ||
+                      selectedSearchAgentKeys.includes(agent.key);
+                    return (
+                      <label className="opshelper-search-agent-option" key={agent.key}>
+                        <span>{agent.name}</span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleSearchAgent(agent.key)}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <span className="opshelper-search-dialog-divider" aria-hidden="true" />
+            <button type="button" aria-label="关闭搜索" onClick={closeSearch}>
+              <IconClose />
+            </button>
+          </div>
+          {searchTerm ? (
+            <div className="opshelper-search-dialog-results" aria-live="polite">
+              {searchLoading ? (
+                <div className="opshelper-search-dialog-empty">正在搜索…</div>
+              ) : searchError ? (
+                <div className="opshelper-search-dialog-empty" role="alert">{searchError}</div>
+              ) : searchResults.length === 0 ? (
+                <div className="opshelper-search-dialog-empty">没有匹配的对话</div>
+              ) : searchResults.map(({ conversation, agentName, matchedContent }) => (
+                <Link
+                  className="opshelper-search-result"
+                  href={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
+                  key={conversation.id}
+                  onClick={() => {
+                    closeSearch();
+                    setShowSidebar(false);
+                  }}
+                >
+                  <span className="opshelper-search-result-copy">
+                    <span className="opshelper-search-result-title">
+                      {highlightSearchMatch(cleanTitle(conversation.title))}
+                    </span>
+                    {matchedContent ? (
+                      <span className="opshelper-search-result-content">
+                        {matchedContent.before}
+                        <mark className="opshelper-search-match">{matchedContent.match}</mark>
+                        {matchedContent.after}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="opshelper-search-result-agent">{agentName}</span>
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      </div>,
+      document.body,
+    ) : null}
+    </>
   );
 }

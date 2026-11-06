@@ -16,9 +16,10 @@ test("seed falls back to the default opencode runtime image", () => {
   assert.equal(resolveSeedContainerImage({}), "opshelper/opencode-runtime:2.0.27");
 });
 
-test("fresh installation requires an explicit strong bootstrap password", () => {
+test("fresh installation requires an explicit bootstrap password of at least six characters", () => {
   assert.throws(() => resolveInitialAdminPassword({}), /OPSHELPER_ADMIN_PASSWORD/);
-  assert.throws(() => resolveInitialAdminPassword({ OPSHELPER_ADMIN_PASSWORD: "too-short" }));
+  assert.throws(() => resolveInitialAdminPassword({ OPSHELPER_ADMIN_PASSWORD: "12345" }));
+  assert.equal(resolveInitialAdminPassword({ OPSHELPER_ADMIN_PASSWORD: "zjyzjy" }), "zjyzjy");
   assert.equal(resolveInitialAdminPassword({ OPSHELPER_ADMIN_PASSWORD: "a-secure-test-password" }), "a-secure-test-password");
 });
 

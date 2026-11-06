@@ -20,6 +20,7 @@ function services(overrides: Partial<ConversationRouteServices> = {}): Conversat
       isActive: true,
     }) as any,
     listConversationHome: async () => ({ agents: [], conversations: [], executionBlockedReason: null }),
+    searchConversationContent: async () => [],
     createConversation: async () => ({ id: "conversation-created" }) as any,
     forkConversation: async () => ({ conversationId: "fork-created", leadAgentKey: "network-ops", text: "", attachments: [] }),
     getCollaborationSnapshot: async () => ({}) as any,
@@ -36,7 +37,7 @@ function services(overrides: Partial<ConversationRouteServices> = {}): Conversat
   };
 }
 
-test("重新开始只接受消息编号，使用登录归属并返回分支草稿", async () => {
+test("分支与原地重试使用登录归属并转发消息编号", async () => {
   const calls: unknown[] = [];
   const app = Fastify();
   await registerConversationRoutes(app, services({
@@ -44,20 +45,64 @@ test("重新开始只接受消息编号，使用登录归属并返回分支草�
       calls.push(input);
       if (input.conversationId === "foreign") throw new ConversationServiceError("对话不存在", 404);
       if (input.messageId === "busy") throw new ConversationServiceError("请等待执行完成", 409);
-      return { conversationId: "fork", leadAgentKey: "network-ops", text: "重新检查", attachments: [] };
+      return {
+        conversationId: "fork",
+        leadAgentKey: "network-ops",
+        text: input.replaceExisting ? "重新检查" : "",
+        attachments: [],
+      };
     },
   }));
   try {
     const fork = await app.inject({ method: "POST", url: "/v1/conversations/owned/fork", payload: { messageId: "msg-saved" } });
     assert.equal(fork.statusCode, 201);
-    assert.equal(fork.json().text, "重新检查");
-    assert.deepEqual(calls[0], { userId: "owner-user", conversationId: "owned", messageId: "msg-saved" });
+    assert.equal(fork.json().text, "");
+    assert.deepEqual(calls[0], {
+      userId: "owner-user",
+      conversationId: "owned",
+      messageId: "msg-saved",
+      replaceExisting: undefined,
+    });
+    const retry = await app.inject({
+      method: "POST",
+      url: "/v1/conversations/owned/fork",
+      payload: { messageId: "msg-saved", replaceExisting: true },
+    });
+    assert.equal(retry.statusCode, 201);
+    assert.equal(retry.json().text, "重新检查");
+    assert.deepEqual(calls[1], {
+      userId: "owner-user",
+      conversationId: "owned",
+      messageId: "msg-saved",
+      replaceExisting: true,
+    });
     for (const payload of [{}, { messageId: "" }, { messageId: "msg", userId: "foreign" }, { messageId: "msg", nativeSessionId: "ses-forged" }]) {
       assert.equal((await app.inject({ method: "POST", url: "/v1/conversations/owned/fork", payload })).statusCode, 400);
     }
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
     assert.equal((await app.inject({ method: "POST", url: "/v1/conversations/foreign/fork", payload: { messageId: "msg" } })).statusCode, 404);
     assert.equal((await app.inject({ method: "POST", url: "/v1/conversations/owned/fork", payload: { messageId: "busy" } })).statusCode, 409);
+  } finally { await app.close(); }
+});
+
+test("对话搜索使用登录用户和指定智能体范围，并拒绝无效查询", async () => {
+  const calls: unknown[] = [];
+  const app = Fastify();
+  await registerConversationRoutes(app, services({
+    searchConversationContent: async (userId, input) => {
+      calls.push([userId, input]);
+      return [];
+    },
+  }));
+  try {
+    const response = await app.inject(
+      "/v1/conversations/search?query=%E5%BB%B6%E8%BF%9F&agentKey=network-ops&agentKey=db-ops",
+    );
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(calls, [["owner-user", { query: "延迟", agentKeys: ["network-ops", "db-ops"] }]]);
+    assert.equal((await app.inject("/v1/conversations/search?query=")).statusCode, 400);
+    assert.equal((await app.inject("/v1/conversations/search?query=x&agentKey=invalid_key")).statusCode, 400);
+    assert.equal(calls.length, 1);
   } finally { await app.close(); }
 });
 

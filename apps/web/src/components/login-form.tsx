@@ -96,9 +96,6 @@ export function LoginForm() {
       <button className="button" disabled={isPending} type="submit">
         {isPending ? "登录中..." : "进入平台"}
       </button>
-
-      <div className="login-footer-hint muted">忘记密码？请联系管理员</div>
-
     </form>
   );
 }

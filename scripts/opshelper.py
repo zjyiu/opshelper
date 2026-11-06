@@ -153,6 +153,9 @@ class Deployment:
 
 
 def init(args):
+    admin_password = args.admin_password if args.admin_password is not None else secrets.token_urlsafe(24)
+    if len(admin_password) < 6:
+        raise ValueError('管理员密码至少 6 位')
     target = canonical(args.env_file)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
@@ -171,14 +174,14 @@ def init(args):
         # Desktop Docker exposes a VM-side root-owned socket; the macOS socket's
         # staff group does not describe its bind inside Linux containers.
         'OPSHELPER_DOCKER_GID': str(0 if sys.platform == 'darwin' else socket.stat().st_gid if socket.exists() else 0),
-        'POSTGRES_PASSWORD': secrets.token_urlsafe(32), 'OPSHELPER_ADMIN_PASSWORD': secrets.token_urlsafe(24),
+        'POSTGRES_PASSWORD': secrets.token_urlsafe(32), 'OPSHELPER_ADMIN_PASSWORD': admin_password,
         'OPSHELPER_HTTP_HOST': '127.0.0.1', 'OPSHELPER_HTTP_PORT': str(args.port),
         'OPSHELPER_SESSION_COOKIE_NAME': args.project.replace('-', '_') + '_session',
         'OPENCODE_DOCKER_IMAGE': 'opshelper/opencode-runtime:2.0.27',
     }
-    # Compose interpolation is disabled by single quotes; reject newlines/quotes in paths.
+    # Compose interpolation is disabled by single quotes; reject newlines/quotes in values.
     if any("'" in value or '\n' in value or '\r' in value for value in values.values()):
-        raise ValueError('配置路径含不支持的字符')
+        raise ValueError('配置值含不支持的字符')
     with target.open('x') as stream:
         os.chmod(target, 0o600)
         stream.write(''.join(f"{key}='{value}'\n" for key, value in values.items()))
@@ -281,7 +284,11 @@ def main():
     parser.add_argument('--env-file', default=str(REPO / '.env'))
     parser.add_argument('--compose-file', default=str(REPO / 'docker-compose.yml'))
     sub = parser.add_subparsers(dest='action', required=True)
-    p = sub.add_parser('init'); p.add_argument('--project', default='opshelper'); p.add_argument('--port', type=int, default=8080); p.add_argument('--data-root')
+    p = sub.add_parser('init')
+    p.add_argument('--project', default='opshelper')
+    p.add_argument('--port', type=int, default=8080)
+    p.add_argument('--data-root')
+    p.add_argument('--admin-password', help='设置初始管理员密码（可能被 shell 历史或进程列表记录）')
     sub.add_parser('bootstrap', help='仅空数据库：迁移后创建初始管理员')
     sub.add_parser('up')
     sub.add_parser('down', aliases=['stop'], help='停止平台与当前部署的用户容器')

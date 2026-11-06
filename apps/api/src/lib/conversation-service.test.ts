@@ -8,10 +8,13 @@ import {
   nativeTaskPermissions,
   autoApprovePermissionRequests,
   pendingQuestion,
+  findConversationSearchContent,
   assertConversationLeadMode,
   conversationLeadAgentWhere,
+  conversationForkBoundary,
   conversationForkPoint,
   conversationHomeWhere,
+  conversationMatchesSearch,
   executionAnswerText,
   executionInteractionGuidance,
   executionPromptMarker,
@@ -23,6 +26,33 @@ import {
   sanitizeRuntimeMessages,
   summarizeMessage,
 } from "./conversation-service";
+
+test("对话搜索匹配标题、执行输入和可见文本消息，不匹配推理消息", () => {
+  const executions = [{ inputText: "检查网络延迟", resultSummary: "已完成检查" }];
+  const messages = [
+    { info: { role: "assistant" }, parts: [{ type: "reasoning", text: "内部推理关键词" }] },
+    { info: { role: "assistant" }, parts: [{ type: "text", text: "延迟峰值来自核心交换机" }] },
+  ];
+
+  assert.equal(conversationMatchesSearch("网络巡检", [], [], "巡检"), true);
+  assert.equal(conversationMatchesSearch("今日检查", executions, [], "网络延迟"), true);
+  assert.equal(conversationMatchesSearch("今日检查", [], messages, "核心交换机"), true);
+  assert.equal(conversationMatchesSearch("今日检查", [], messages, "内部推理关键词"), false);
+  assert.equal(conversationMatchesSearch("今日检查", [], [], "缺失词"), false);
+});
+
+test("对话搜索只返回内容中第一个匹配位置", () => {
+  const firstMatch = findConversationSearchContent(
+    [{ inputText: "先找到关键词，后面还有关键词", resultSummary: "关键词" }],
+    [{ info: { role: "user" }, parts: [{ type: "text", text: "另一个关键词" }] }],
+    "关键词",
+  );
+  assert.deepEqual(firstMatch, {
+    before: "先找到",
+    match: "关键词",
+    after: "，后面还有关键词",
+  });
+});
 
 test("V2 提示保留任意附件路径，但不把 ZIP、表格和二进制文件发送为模型附件", () => {
   const attachments = [
@@ -92,9 +122,18 @@ test("会话分支边界只接受当前历史里的用户消息，包括附件�
     { info: { id: "msg-first", role: "user" }, parts: [{ type: "text", text: "前文" }] },
     { info: { id: "msg-answer", role: "assistant" }, parts: [{ type: "text", text: "回答" }] },
     { info: { id: "msg-file", role: "user" }, parts: [{ type: "file", url: "file:///workspace/a.txt" }] },
+    { info: { id: "msg-last-answer", role: "assistant" }, parts: [{ type: "text", text: "最后回答" }] },
   ];
   assert.equal(conversationForkPoint(messages, "msg-first").index, 0);
   assert.equal(conversationForkPoint(messages, "msg-file").index, 2);
+  assert.deepEqual(conversationForkBoundary(messages, "msg-first"), {
+    beforeMessageId: "msg-file",
+    messageCount: 2,
+  });
+  assert.deepEqual(conversationForkBoundary(messages, "msg-file"), {
+    beforeMessageId: null,
+    messageCount: messages.length,
+  });
   assert.throws(() => conversationForkPoint(messages, "msg-answer"), /用户消息/);
   assert.throws(() => conversationForkPoint(messages, "optimistic-new"), /用户消息/);
   assert.throws(() => conversationForkPoint(messages, "msg-foreign"), /用户消息/);

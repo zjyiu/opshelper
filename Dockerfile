@@ -8,7 +8,10 @@ WORKDIR /app
 #   && apt-get install -y --no-install-recommends openssl ca-certificates dumb-init \
 #   && rm -rf /var/lib/apt/lists/*
 
-RUN set -eux; \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    set -eux; \
+    rm -f /etc/apt/apt.conf.d/docker-clean; \
     if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
         sed -i \
             's|http://deb.debian.org/debian|http://mirrors.aliyun.com/debian|g; \
@@ -20,8 +23,7 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
         openssl \
         ca-certificates \
-        dumb-init; \
-    rm -rf /var/lib/apt/lists/*
+        dumb-init
 
 
 FROM base AS deps

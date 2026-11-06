@@ -11,9 +11,9 @@
   --line-strong: rgba(100, 116, 139, 0.2);
   --text: #1f2937;
   --muted: #64748b;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: rgba(79, 70, 229, 0.1);
+  --accent: #00A651;
+  --accent-hover: #00843D;
+  --accent-soft: rgba(0, 166, 81, 0.1);
   --success: #059669;
   --success-bg: rgba(5, 150, 105, 0.10);
   --warning: #d97706;
@@ -23,13 +23,13 @@
   --radius: 24px;
   --radius-sm: 16px;
   /* 统一的分层阴影设计令牌 */
-  --shadow-xs: 0 2px 8px rgba(79, 70, 229, 0.06);
-  --shadow-sm: 0 6px 16px rgba(79, 70, 229, 0.08);
-  --shadow-md: 0 10px 24px rgba(79, 70, 229, 0.1);
-  --shadow-lg: 0 16px 32px rgba(79, 70, 229, 0.12);
-  --shadow-xl: 0 20px 40px rgba(79, 70, 229, 0.16);
-  --shadow-card: 0 6px 18px rgba(79, 70, 229, 0.07);
-  --shadow-card-hover: 0 16px 32px rgba(79, 70, 229, 0.14);
+  --shadow-xs: 0 2px 8px rgba(0, 166, 81, 0.06);
+  --shadow-sm: 0 6px 16px rgba(0, 166, 81, 0.08);
+  --shadow-md: 0 10px 24px rgba(0, 166, 81, 0.1);
+  --shadow-lg: 0 16px 32px rgba(0, 166, 81, 0.12);
+  --shadow-xl: 0 20px 40px rgba(0, 166, 81, 0.16);
+  --shadow-card: 0 6px 18px rgba(0, 166, 81, 0.07);
+  --shadow-card-hover: 0 16px 32px rgba(0, 166, 81, 0.14);
 }
 
 * {
@@ -50,7 +50,7 @@ html, body {
 
 /* 优雅的平滑滚动条与全局高亮色 */
 ::selection {
-  background: rgba(79, 70, 229, 0.16);
+  background: rgba(0, 166, 81, 0.16);
   color: #312e81;
 }
 
@@ -568,7 +568,7 @@ select:focus-visible {
 .kpi-card:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-card-hover);
-  border-color: rgba(79, 70, 229, 0.2);
+  border-color: rgba(0, 166, 81, 0.2);
 }
 
 .kpi-label {
@@ -666,7 +666,7 @@ select:focus-visible {
 .status-creating {
   color: var(--accent);
   background: var(--accent-soft);
-  border-color: rgba(79, 70, 229, 0.18);
+  border-color: rgba(0, 166, 81, 0.18);
 }
 
 .status-creating::before {
@@ -726,12 +726,12 @@ select:focus-visible {
 .button {
   background: var(--accent);
   color: white;
-  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.22);
+  box-shadow: 0 8px 18px rgba(0, 166, 81, 0.22);
 }
 
 .button:hover {
   background: var(--accent-hover);
-  box-shadow: 0 12px 24px rgba(79, 70, 229, 0.28);
+  box-shadow: 0 12px 24px rgba(0, 166, 81, 0.28);
   transform: translateY(-0.5px);
 }
 
@@ -829,13 +829,13 @@ select:focus-visible {
 }
 
 .field-input:hover {
-  background: #eef2ff;
+  background: #E6F4EA;
 }
 
 .field-input:focus {
   border-color: transparent;
   background: #ffffff;
-  box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 20px rgba(79, 70, 229, 0.08);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 20px rgba(0, 166, 81, 0.08);
 }
 
 /* 多行输入沿用 .field-input 的形态：同色描边、同圆角、同焦点环，
@@ -1406,7 +1406,7 @@ select:focus-visible {
 }
 
 .workspace-file-content .file-tree-drop-target {
-  background: rgba(99, 102, 241, 0.05);
+  background: rgba(0, 166, 81, 0.05);
 }
 
 .workspace-file-content .file-tree-row {
@@ -1645,7 +1645,7 @@ select:focus-visible {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(0, 166, 81, 0.12);
   color: var(--accent);
   font-weight: 650;
 }
@@ -1806,7 +1806,7 @@ select:focus-visible {
 .file-breadcrumb-segment-drop {
   background: var(--g-accent-soft, var(--accent-soft));
   color: var(--g-accent-dark, var(--accent));
-  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(0, 166, 81, 0.28);
 }
 
 .file-manager {
@@ -1856,8 +1856,8 @@ select:focus-visible {
 }
 
 .file-tree-drop-target {
-  background: rgba(99, 102, 241, 0.04);
-  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.2);
+  background: rgba(0, 166, 81, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(0, 166, 81, 0.2);
 }
 
 .file-tree-row {
@@ -1881,7 +1881,7 @@ select:focus-visible {
 
 .file-tree-row-selected,
 .file-tree-row-checked {
-  background: rgba(99, 102, 241, 0.07);
+  background: rgba(0, 166, 81, 0.07);
 }
 
 .file-tree-row-cut {
@@ -1897,8 +1897,8 @@ select:focus-visible {
 }
 
 .file-tree-row-drop-target {
-  background: rgba(99, 102, 241, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(79, 70, 229, 0.28);
+  background: rgba(0, 166, 81, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 166, 81, 0.28);
 }
 
 .file-tree-row-head {
@@ -2069,7 +2069,7 @@ select:focus-visible {
 }
 
 .file-row-quick-action:hover {
-  background: var(--g-accent-soft, rgba(99, 102, 241, 0.14));
+  background: var(--g-accent-soft, rgba(0, 166, 81, 0.14));
   color: var(--g-accent-dark, var(--text));
 }
 
@@ -2918,10 +2918,10 @@ select:focus-visible {
 .login-wrapper-standalone {
   min-height: 100vh;
   background:
-    radial-gradient(ellipse 65% 50% at 50% 0%, rgba(99, 102, 241, 0.12), transparent 70%),
+    radial-gradient(ellipse 65% 50% at 50% 0%, rgba(0, 166, 81, 0.12), transparent 70%),
     radial-gradient(circle 480px at 85% 85%, rgba(236, 72, 153, 0.06), transparent 70%),
-    radial-gradient(circle 400px at 15% 75%, rgba(99, 102, 241, 0.05), transparent 60%),
-    linear-gradient(160deg, #ffffff 0%, #f5f3ff 52%, #eef2ff 100%);
+    radial-gradient(circle 400px at 15% 75%, rgba(0, 166, 81, 0.05), transparent 60%),
+    linear-gradient(160deg, #ffffff 0%, #F3FAF5 52%, #E6F4EA 100%);
 }
 
 
@@ -2939,28 +2939,22 @@ select:focus-visible {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow:
-    0 12px 28px rgba(79, 70, 229, 0.1),
-    0 24px 56px rgba(79, 70, 229, 0.12);
+    0 12px 28px rgba(0, 166, 81, 0.1),
+    0 24px 56px rgba(0, 166, 81, 0.12);
   transition: transform 300ms ease-in-out, box-shadow 300ms ease-in-out;
 }
 
 .login-card .panel:hover {
   box-shadow:
-    0 16px 36px rgba(79, 70, 229, 0.14),
-    0 30px 64px rgba(79, 70, 229, 0.16);
+    0 16px 36px rgba(0, 166, 81, 0.14),
+    0 30px 64px rgba(0, 166, 81, 0.16);
 }
 
 .login-card .panel-title {
-  font-size: 1.4rem;
+  font-size: 1.6rem;
   font-weight: 700;
   letter-spacing: -0.025em;
   color: var(--text);
-}
-
-.login-card .login-header .muted {
-  font-size: 0.92rem;
-  color: var(--muted);
-  margin-top: 2px;
 }
 
 .login-card .button {
@@ -2974,24 +2968,18 @@ select:focus-visible {
   background: #fff;
   color: var(--text, #1f2937);
   border: 0;
-  box-shadow: 0 2px 10px rgba(79, 70, 229, 0.12), 0 0 0 1px rgba(79, 70, 229, 0.08);
+  box-shadow: 0 2px 10px rgba(0, 166, 81, 0.12), 0 0 0 1px rgba(0, 166, 81, 0.08);
 }
 
 .login-card .button:hover:not(:disabled) {
-  background: #eef2ff;
-  color: #4338ca;
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.16), 0 0 0 1px rgba(79, 70, 229, 0.12);
+  background: #E6F4EA;
+  color: #00843D;
+  box-shadow: 0 8px 20px rgba(0, 166, 81, 0.16), 0 0 0 1px rgba(0, 166, 81, 0.12);
   transform: translateY(-2px);
 }
 
 .login-card .button:active:not(:disabled) {
   transform: scale(0.985);
-}
-
-.login-footer-hint {
-  margin-top: 8px;
-  text-align: center;
-  font-size: 0.82rem;
 }
 
 .field-input-wrap {
@@ -3039,23 +3027,10 @@ select:focus-visible {
   margin-bottom: 26px;
 }
 
-.login-icon {
-  width: 58px;
-  height: 58px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(99, 102, 241, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 8px;
-  box-shadow: 0 8px 20px rgba(79, 70, 229, 0.16);
-  transition: transform 300ms ease-in-out, box-shadow 300ms ease-in-out;
-}
-
-.login-icon:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 24px rgba(79, 70, 229, 0.22);
+.login-brand-mark {
+  margin-bottom: 4px;
+  border-radius: 20px;
+  overflow: hidden;
 }
 
 @media (max-width: 480px) {
@@ -4511,7 +4486,7 @@ select:focus-visible {
 
 .file-context-menu-item:hover:not(:disabled),
 .file-context-menu-item:focus-visible:not(:disabled) {
-  background: rgba(99, 102, 241, 0.1);
+  background: rgba(0, 166, 81, 0.1);
   outline: none;
 }
 
@@ -4839,9 +4814,9 @@ select:focus-visible {
 .schedule-notice {
   flex: 0 0 auto;
   border: 0;
-  border-bottom: 1px solid var(--g-accent-line, rgba(99, 102, 241, 0.2));
+  border-bottom: 1px solid var(--g-accent-line, rgba(0, 166, 81, 0.2));
   border-radius: 0;
-  background: var(--g-accent-soft2, rgba(99, 102, 241, 0.08));
+  background: var(--g-accent-soft2, rgba(0, 166, 81, 0.08));
   padding: 9px 14px;
   font-size: 12.5px;
   line-height: 1.6;
@@ -4902,7 +4877,7 @@ select:focus-visible {
 
 .schedule-panel.active {
   border-color: var(--g-accent, var(--accent));
-  background: var(--g-accent-soft, rgba(99, 102, 241, 0.1));
+  background: var(--g-accent-soft, rgba(0, 166, 81, 0.1));
 }
 
 .schedule-panel-head {
@@ -5122,7 +5097,7 @@ select:focus-visible {
   border-radius: 16px;
   display: grid;
   place-items: center;
-  background: var(--g-accent-soft, rgba(99, 102, 241, 0.1));
+  background: var(--g-accent-soft, rgba(0, 166, 81, 0.1));
   color: var(--g-accent-dark, var(--accent));
 }
 .schedule-onboarding-icon .opshelper-icon { width: 26px; height: 26px; }
@@ -5526,7 +5501,7 @@ select:focus-visible {
   font-size: 13px;
   cursor: pointer;
 }
-.file-new-menu-list button:hover { background: rgba(99, 102, 241, 0.08); }
+.file-new-menu-list button:hover { background: rgba(0, 166, 81, 0.08); }
 .file-new-menu-list svg { width: 15px; height: 15px; }
 
 .file-view-bar {
@@ -5547,8 +5522,8 @@ select:focus-visible {
   cursor: pointer;
 }
 .file-view-tabs button.is-active {
-  background: rgba(99, 102, 241, 0.12);
-  color: #4338ca;
+  background: rgba(0, 166, 81, 0.12);
+  color: #00843D;
   font-weight: 600;
 }
 .file-search-input { width: 220px; max-width: 45%; min-height: 30px; padding: 4px 10px; font-size: 13px; }
@@ -5564,7 +5539,7 @@ select:focus-visible {
   font-size: 13px;
   cursor: pointer;
 }
-.file-head-bulk button:hover { background: rgba(99, 102, 241, 0.1); color: #4338ca; }
+.file-head-bulk button:hover { background: rgba(0, 166, 81, 0.1); color: #00843D; }
 .file-head-bulk button.is-danger:hover { background: rgba(200, 40, 40, 0.1); color: #b42318; }
 
 .file-row-star.is-favorite { color: #d99a00; opacity: 1; visibility: visible; }
@@ -5582,9 +5557,9 @@ select:focus-visible {
 }
 .file-dropzone:hover,
 .file-dropzone.is-over {
-  border-color: #4f46e5;
-  background: rgba(99, 102, 241, 0.06);
-  color: #4338ca;
+  border-color: #00A651;
+  background: rgba(0, 166, 81, 0.06);
+  color: #00843D;
 }
 
 .file-manager-with-sidebar {
@@ -5608,10 +5583,10 @@ select:focus-visible {
   text-align: left;
   cursor: pointer;
 }
-.file-sidebar button:hover { background: rgba(99, 102, 241, 0.06); }
+.file-sidebar button:hover { background: rgba(0, 166, 81, 0.06); }
 .file-sidebar button.is-active {
-  background: rgba(99, 102, 241, 0.12);
-  color: #4338ca;
+  background: rgba(0, 166, 81, 0.12);
+  color: #00843D;
   font-weight: 600;
 }
 .file-manager-main {

@@ -336,6 +336,16 @@ export interface ConversationsResponse {
   executionBlockedReason: string | null;
 }
 
+export interface ConversationSearchResult {
+  conversation: ConversationSummary;
+  agentName: string;
+  matchedContent: {
+    before: string;
+    match: string;
+    after: string;
+  } | null;
+}
+
 export interface CreateConversationRequest {
   leadAgentKey: string;
   title?: string;
@@ -346,6 +356,7 @@ export interface ForkConversationResponse {
   leadAgentKey: string;
   text: string;
   attachments: ConversationAttachment[];
+  cleanupWarning?: string;
 }
 
 export interface CreateExecutionRequest {

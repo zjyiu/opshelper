@@ -1,5 +1,6 @@
 import type {
   CollaborationSnapshot,
+  ChatModelsResponse,
   AdminAgentsSnapshot,
   AgentDetail,
   AgentDirectoryRequest,
@@ -13,6 +14,7 @@ import type {
   UserResponse,
   UserAgentAssignmentsSnapshot,
   ConversationsResponse,
+  ConversationSearchResult,
   ConversationSnapshot,
   CreateConversationRequest,
   ForkConversationResponse,
@@ -24,6 +26,7 @@ import type {
   SkillPackageImport,
   SkillRepositorySkillSummary,
   SkillRepositorySnapshot,
+  UserPortalSnapshot,
 } from "@opshelper/shared";
 
 export type AgentApiScope = "admin" | "user";
@@ -66,6 +69,14 @@ export async function logout() {
   });
 
   return parseResponse<void>(response);
+}
+
+export async function getUserPortalSnapshot() {
+  return fetchJson<UserPortalSnapshot>("/v1/users/me/portal", { cache: "no-store" });
+}
+
+export async function getChatModels() {
+  return fetchJson<ChatModelsResponse>("/v1/users/me/models", { cache: "no-store" });
 }
 
 export async function createUser(input: CreateUserRequest) {
@@ -268,6 +279,12 @@ export async function listConversations() {
   return fetchJson<ConversationsResponse>("/v1/conversations", { cache: "no-store" });
 }
 
+export async function searchConversations(query: string, agentKeys: readonly string[]) {
+  const params = new URLSearchParams({ query });
+  for (const agentKey of agentKeys) params.append("agentKey", agentKey);
+  return fetchJson<ConversationSearchResult[]>(`/v1/conversations/search?${params}`, { cache: "no-store" });
+}
+
 export async function createConversation(input: CreateConversationRequest) {
   return fetchJson<{ conversationId: string }>("/v1/conversations", {
     method: "POST",
@@ -283,13 +300,13 @@ export async function getConversation(conversationId: string) {
   );
 }
 
-export async function forkConversation(conversationId: string, messageId: string) {
+export async function forkConversation(conversationId: string, messageId: string, replaceExisting = false) {
   return fetchJson<ForkConversationResponse>(
     `/v1/conversations/${encodeURIComponent(conversationId)}/fork`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId }),
+      body: JSON.stringify({ messageId, ...(replaceExisting ? { replaceExisting: true } : {}) }),
     },
   );
 }

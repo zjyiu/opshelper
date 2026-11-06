@@ -56,7 +56,7 @@ function workspace(
   forkConversation = async (): Promise<ForkConversationResponse> => ({
     conversationId: fork.id,
     leadAgentKey: fork.leadAgentKey,
-    text: "fork draft",
+    text: "",
     attachments: [],
   }),
   archiveConversation = async (_id: string) => {},
@@ -81,6 +81,7 @@ function workspace(
   };
   const context = vm.createContext({
     useCallback: (fn: unknown) => fn,
+    agents: home.agents,
     listConversations,
     getConversation,
     archiveConversation,
@@ -95,6 +96,8 @@ function workspace(
     setNotice: noop,
     conversationDraftKey: (id: string | null, agent: string) => id ? `conversation:${id}` : `new:${agent}`,
     setDraft: (key: string, draft: { input: string; attachments: unknown[] }) => { state.drafts[key] = draft; },
+    refreshConversation: async () => ({ conversation: fork, messages: [], executions: [] }),
+    updateOptimisticMessages: noop,
     createClientId: () => "attachment-id",
     navigationGenerationRef: { current: 0 },
     activeConversationRef: { current: state.conversation },
@@ -109,6 +112,7 @@ function workspace(
       conversationGenerationRef.current += 1;
     },
     setActiveAgentKey: (key: string | null) => { state.agent = key; },
+    setActiveAgent: (key: string) => { state.agent = key; },
     setConversations: (items: typeof home.conversations | ((current: typeof home.conversations) => typeof home.conversations)) => {
       state.conversations = typeof items === "function" ? items(state.conversations) : items;
     },
@@ -135,7 +139,7 @@ function workspace(
     refreshHome: context.refreshHome as (id?: string | null, options?: { activate?: boolean }) => Promise<void>,
     restartFrom: context.restartFrom as (message: { id: string }) => Promise<void>,
     activateConversation: context.activateConversation as (id: string, agent: string) => void,
-    startNewConversation: context.startNewConversation as () => void,
+    startNewConversation: context.startNewConversation as (prefill?: string, agentKey?: string) => void,
     setActiveAgent: context.setActiveAgent as (key: string) => void,
   };
 }
@@ -157,6 +161,15 @@ test("a delayed fork list refresh preserves a newly opened blank conversation", 
   assert.equal(provider.state.conversation, null);
   assert.match(provider.state.url, /^\/chat\?new=/);
   assert.equal(provider.state.conversations, home.conversations);
+});
+
+test("starting a new conversation for an agent activates that agent", () => {
+  const provider = workspace(async () => home);
+  provider.startNewConversation("", "agent-b");
+
+  assert.equal(provider.state.agent, "agent-b");
+  assert.equal(provider.state.conversation, null);
+  assert.match(provider.state.url, /^\/chat\?new=/);
 });
 
 test("a delayed fork list refresh preserves another selected conversation and agent", async () => {
@@ -235,7 +248,7 @@ for (const destination of ["new", "other", "source"] as const) {
       if (destination === "source") provider.activateConversation("source", "agent-a");
     }
     const current = { ...provider.state };
-    created.resolve({ conversationId: "fork", leadAgentKey: "agent-a", text: "fork draft", attachments: [] });
+    created.resolve({ conversationId: "fork", leadAgentKey: "agent-a", text: "", attachments: [] });
     assert.equal(
       await Promise.race([listStarted.promise.then(() => true), restart.then(() => false)]),
       true,
@@ -250,16 +263,16 @@ for (const destination of ["new", "other", "source"] as const) {
     assert.equal(provider.state.input, current.input);
     assert.equal(provider.state.attachments, current.attachments);
     assert.equal(provider.forkingRef.current, false);
-    assert.equal(provider.state.drafts["conversation:fork"].input, "fork draft");
+    assert.equal(provider.state.drafts["conversation:fork"].input, "");
   });
 }
 
-test("a current fork response still opens the branch and restores its draft", async () => {
+test("a current fork response opens a clean branch for a new question", async () => {
   const provider = workspace(async () => home);
   await provider.restartFrom({ id: "selected-message" });
   assert.equal(provider.state.conversation, "fork");
-  assert.equal(provider.state.input, "fork draft");
-  assert.equal(provider.state.drafts["conversation:fork"].input, "fork draft");
+  assert.equal(provider.state.input, "");
+  assert.equal(provider.state.drafts["conversation:fork"].input, "");
   assert.equal(provider.state.url, "/chat?conversation=fork");
   assert.equal(provider.forkingRef.current, false);
 });

@@ -14,8 +14,8 @@ export function resolveSeedContainerImage(
 
 export function resolveInitialAdminPassword(env: Pick<NodeJS.ProcessEnv, "OPSHELPER_ADMIN_PASSWORD">) {
   const password = env.OPSHELPER_ADMIN_PASSWORD;
-  if (!password || password.length < 12) {
-    throw new Error("首次初始化必须设置至少 12 位的 OPSHELPER_ADMIN_PASSWORD");
+  if (!password || password.length < 6) {
+    throw new Error("首次初始化必须设置至少 6 位的 OPSHELPER_ADMIN_PASSWORD");
   }
   return password;
 }

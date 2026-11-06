@@ -1,6 +1,6 @@
 import Image from "next/image";
 
-import brandLogo from "../../../public/brand/xiaoxin-ops-icon.png";
+import brandLogo from "../../../public/brand/xiaoxin-ops-logo.webp";
 
 // Chat-UI icon set. These are self-contained SVGs styled by the `opshelper-icon`
 // class (a different visual system from the file-manager's `file-icons.tsx`),
@@ -11,8 +11,8 @@ const ICON = "http://www.w3.org/2000/svg";
 export function IconSearch() {
   return (
     <svg className="opshelper-icon opshelper-search-icon" viewBox="0 0 24 24" fill="none" xmlns={ICON} aria-hidden="true">
-      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M20 20l-3.2-3.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2.4" />
+      <path d="M20 20l-3.2-3.2" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
     </svg>
   );
 }
@@ -128,6 +128,18 @@ export function IconClose() {
   );
 }
 
+export function IconExpand({ expanded }: { expanded: boolean }) {
+  return (
+    <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      {expanded ? (
+        <path d="M9 4v5H4m0-5 6 6m5 10v-5h5m0 5-6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      ) : (
+        <path d="M9 4H4v5m0-5 6 6m5 10h5v-5m0 5-6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+    </svg>
+  );
+}
+
 export function IconEdit() {
   return (
     <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -179,6 +191,34 @@ export function IconPaperclip() {
   );
 }
 
+export function IconCopy() {
+  return (
+    <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" stroke="currentColor" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
+export function IconRetry() {
+  return (
+    <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M20 7v5h-5M4.8 9a7.5 7.5 0 0 1 12.5-2L20 12M4 17v-5h5m10.2 3a7.5 7.5 0 0 1-12.5 2L4 12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconBranch() {
+  return (
+    <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="7" cy="5" r="2" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="17" cy="19" r="2" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="17" cy="5" r="2" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M7 7v6a6 6 0 0 0 6 6h2M7 13a6 6 0 0 1 6-6h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // 顶栏的「附件面板」开关：回形针在下方的输入栏已经是「上传文件」，
 // 同一个图形不能同时表示两种动作，这里用侧栏面板的形状。
 export function IconDownload() {
@@ -192,8 +232,8 @@ export function IconDownload() {
 export function IconSidePanel() {
   return (
     <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M15 4.8v14.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <rect x="3" y="4" width="18" height="16" rx="2.5" stroke="currentColor" strokeWidth="2" />
+      <path d="M15 4.8v14.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -394,10 +434,27 @@ export function IconAlert() {
   );
 }
 
-export function BrandLogo() {
+export function BrandLogo({
+  size = 40,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
   return (
-    <span className="opshelper-brand-mark" aria-hidden="true">
-      <Image src={brandLogo} alt="" width={40} height={40} priority />
+    <span
+      className={`opshelper-brand-mark${className ? ` ${className}` : ""}`}
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
+      <Image
+        src={brandLogo}
+        alt=""
+        width={size}
+        height={size}
+        style={{ width: size, height: size }}
+        priority
+      />
     </span>
   );
 }

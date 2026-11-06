@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { ChatModelOption } from "@opshelper/shared";
 
-import { IconClock, IconClose, IconFolder, IconPaperclip, IconSend, IconStop } from "./icons";
+import { IconClose, IconExpand, IconFolder, IconPaperclip, IconSend, IconStop } from "./icons";
 import type { Attachment, MentionFile } from "./types";
 
 export function Composer({
@@ -15,15 +15,12 @@ export function Composer({
   models = [],
   model = "",
   onModelChange,
-  autoApprovePermissions = false,
-  onAutoApprovePermissionsChange,
   attachments,
   onAddFiles,
   onRequestReference,
   onRemoveAttachment,
   onSearchFiles,
   onMention,
-  onSchedule,
   blocked = false,
   readOnly = false,
   queueHint = false,
@@ -40,15 +37,12 @@ export function Composer({
   models?: ChatModelOption[];
   model?: string;
   onModelChange?: (model: string) => void;
-  autoApprovePermissions?: boolean;
-  onAutoApprovePermissionsChange?: (enabled: boolean) => void;
   attachments: Attachment[];
   onAddFiles: (files: File[]) => void;
   onRequestReference: () => void;
   onRemoveAttachment: (id: string) => void;
   onSearchFiles: (query: string) => Promise<MentionFile[]>;
   onMention: (file: MentionFile) => void;
-  onSchedule: () => void;
   blocked?: boolean;
   readOnly?: boolean;
   queueHint?: boolean;
@@ -71,6 +65,9 @@ export function Composer({
   >(null);
   const [mentionResults, setMentionResults] = useState<MentionFile[]>([]);
   const [mentionActive, setMentionActive] = useState(0);
+  const [multiline, setMultiline] = useState(false);
+  const [hasOverflow, setHasOverflow] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const dragDepth = useRef(0);
 
   const uploading = attachments.some((a) => a.status === "uploading");
@@ -98,10 +95,57 @@ export function Composer({
   // 单行起步、随内容自动增高（封顶交给 CSS max-height，超出后内部滚动）。
   useEffect(() => {
     const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [value]);
+    const row = el?.parentElement;
+    if (!el || !row) return;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    const controlSelectors = [
+      ".opshelper-attach-menu-wrap",
+      ".opshelper-queue-hint",
+      ".opshelper-sending-hint",
+      ".opshelper-stop",
+      ".opshelper-model-pick",
+      ".opshelper-send:not(.opshelper-stop)",
+    ];
+    const updateSize = () => {
+      el.style.height = "auto";
+      const height = el.scrollHeight;
+      const textareaStyle = window.getComputedStyle(el);
+      const rowStyle = window.getComputedStyle(row);
+      const controls = controlSelectors
+        .map((selector) => row.querySelector<HTMLElement>(selector))
+        .filter((control): control is HTMLElement => {
+          if (!control) return false;
+          const style = window.getComputedStyle(control);
+          return style.display !== "none" && style.position !== "absolute";
+        });
+      const controlsWidth = controls.reduce(
+        (total, control) => total + control.getBoundingClientRect().width,
+        0,
+      );
+      const horizontalPadding =
+        Number.parseFloat(rowStyle.paddingLeft) +
+        Number.parseFloat(rowStyle.paddingRight);
+      const gap = Number.parseFloat(rowStyle.columnGap) || 0;
+      const inlineWidth =
+        row.clientWidth - horizontalPadding - controlsWidth - gap * controls.length;
+      if (context) {
+        context.font = `${textareaStyle.fontStyle} ${textareaStyle.fontWeight} ${textareaStyle.fontSize} ${textareaStyle.fontFamily}`;
+      }
+      const wraps = value.includes("\n") || Boolean(
+        value && context && context.measureText(value).width > inlineWidth,
+      );
+      setMultiline(wraps);
+      const overflows = height > 168;
+      setHasOverflow(overflows);
+      if (!overflows && expanded) setExpanded(false);
+      el.style.height = `${height}px`;
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [busy, expanded, model, models, queueHint, stopping, submitting, value]);
 
   useEffect(() => {
     if (focusToken <= 0) return;
@@ -250,7 +294,7 @@ export function Composer({
         </div>
       ) : null}
 
-      <div className="opshelper-composer-row">
+      <div className={`opshelper-composer-row${multiline ? " opshelper-composer-multiline" : ""}${expanded ? " opshelper-composer-expanded" : ""}${hasOverflow ? " opshelper-composer-has-expand" : ""}`}>
         {showMentions ? (
           <div className="opshelper-mention-menu" role="listbox">
             {mentionResults.map((file, idx) => (
@@ -274,6 +318,7 @@ export function Composer({
 
         <textarea
           ref={textareaRef}
+          rows={1}
           placeholder="输入你的需求，或添加文件"
           aria-label="消息内容"
           aria-describedby={keyboardHintId}
@@ -297,8 +342,19 @@ export function Composer({
           onKeyDown={handleKeyDown}
           onBlur={() => setTimeout(() => setMention(null), 120)}
         />
+        {hasOverflow ? (
+          <button
+            className="opshelper-composer-expand"
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            aria-label={expanded ? "收起输入框" : "展开输入框"}
+            aria-expanded={expanded}
+            title={expanded ? "收起输入框" : "展开输入框"}
+          >
+            <IconExpand expanded={expanded} />
+          </button>
+        ) : null}
 
-        {/* 工具条与输入框同壳：附件、模型切换靠左，发送靠右，不再单占一行。 */}
         <div className="opshelper-composer-tools">
           <div className="opshelper-attach-menu-wrap" ref={attachMenuRef}>
             <button
@@ -352,6 +408,20 @@ export function Composer({
             }}
           />
 
+          {queueHint ? <span className="opshelper-queue-hint">任务处理中，可继续输入下一条</span> : null}
+          {submitting ? <span className="opshelper-sending-hint" role="status">发送中…</span> : null}
+
+          {busy ? (
+            <button
+              className="opshelper-send opshelper-stop"
+              onClick={onStop}
+              disabled={stopping}
+              aria-label={stopping ? "正在停止当前任务" : "停止当前任务"}
+            >
+              <IconStop />
+              <span>{stopping ? "停止中…" : "停止"}</span>
+            </button>
+          ) : null}
           {models.length > 0 ? (
             <label className="opshelper-model-pick" title="切换模型（对下一条消息生效）">
               <select
@@ -370,65 +440,19 @@ export function Composer({
               </select>
             </label>
           ) : null}
-
-          <label
-            className={`opshelper-auto-approve${autoApprovePermissions ? " active" : ""}`}
-            title="开启后，本条及后续消息产生的工具授权将自动允许一次；智能体提问仍需处理"
-          >
-            <input
-              type="checkbox"
-              checked={autoApprovePermissions}
-              onChange={(event) => onAutoApprovePermissionsChange?.(event.target.checked)}
-              disabled={blocked}
-            />
-            <span>自动授权</span>
-          </label>
-
-          {queueHint ? <span className="opshelper-queue-hint">任务处理中，可继续输入下一条</span> : null}
-          {submitting ? <span className="opshelper-sending-hint" role="status">发送中…</span> : null}
-          <span className="opshelper-composer-spacer" />
-
           <button
-            className="opshelper-schedule-btn"
+            className="opshelper-send"
             type="button"
-            onClick={onSchedule}
-            disabled={!canSend}
-            title="把当前任务设为定时任务"
+            onClick={onSend}
+            disabled={!canSend || submitting}
+            aria-label={busy ? "将消息加入队列" : "发送"}
+            title={busy ? "将消息加入队列" : "发送"}
           >
-            <IconClock />
-            <span>设为定时</span>
+            <IconSend />
           </button>
-
-          {busy ? (
-            <button
-              className="opshelper-send opshelper-stop"
-              onClick={onStop}
-              disabled={stopping}
-              aria-label={stopping ? "正在停止当前任务" : "停止当前任务"}
-            >
-              <IconStop />
-              <span>{stopping ? "停止中…" : "停止"}</span>
-            </button>
-          ) : null}
-          {busy && canSend ? (
-            <button className="opshelper-queue-send" onClick={onSend} aria-label="将消息加入队列">
-              加入队列
-            </button>
-          ) : null}
-          {!busy && !submitting ? (
-            <button
-              className="opshelper-send"
-              onClick={onSend}
-              disabled={!canSend}
-              aria-label="发送"
-              title="发送"
-            >
-              <IconSend />
-            </button>
-          ) : null}
         </div>
       </div>
-      <div className="opshelper-composer-keyboard-hint" id={keyboardHintId}>Enter 发送 · Shift+Enter 换行</div>
+      <div className="opshelper-composer-keyboard-hint" id={keyboardHintId}>Enter 发送/排队 · Shift+Enter 换行</div>
     </div>
   );
 }

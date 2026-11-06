@@ -49,9 +49,11 @@ export function stopActionState(status: ContainerStatus): ContainerActionState {
 export function ContainerActions({
   actions,
   onActionStart,
+  onActionComplete,
 }: {
   actions: ContainerActionSpec[];
   onActionStart?: (action: ContainerActionSpec) => void;
+  onActionComplete?: (action: ContainerActionSpec) => void;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -93,6 +95,7 @@ export function ContainerActions({
                 try {
                   await mutateContainer(action.path, action.method);
                   toast.success(`${action.label}操作已执行`);
+                  onActionComplete?.(action);
                   router.refresh();
                 } catch (nextError) {
                   toast.error(

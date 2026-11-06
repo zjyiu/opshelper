@@ -18,6 +18,7 @@ import type {
   ConversationSnapshot,
   ConversationSummary,
   ConversationsResponse,
+  ConversationSearchResult,
   ForkConversationResponse,
   ExecutionSummary,
   AgentMode,
@@ -404,6 +405,19 @@ export function conversationForkPoint(messages: unknown[], messageId: string) {
   return { index, message: messages[index] };
 }
 
+export function conversationForkBoundary(messages: unknown[], messageId: string) {
+  const point = conversationForkPoint(messages, messageId);
+  const nextUserIndex = messages.findIndex(
+    (message, index) => index > point.index && messageRole(message) === "user",
+  );
+  if (nextUserIndex < 0) return { beforeMessageId: null, messageCount: messages.length };
+  const beforeMessageId = runtimeMessageInfo(messages[nextUserIndex])?.info.id;
+  if (typeof beforeMessageId !== "string" || beforeMessageId.length === 0) {
+    throw new ConversationServiceError("无法确认分支点之后的消息编号", 503);
+  }
+  return { beforeMessageId, messageCount: nextUserIndex };
+}
+
 async function connectRuntime(userId: string): Promise<RuntimeConnection> {
   const container = await startContainerByUserId(userId);
   const runtime = await getActiveContainerRuntime(container);
@@ -695,6 +709,139 @@ export async function listConversationHome(userId: string): Promise<Conversation
   };
 }
 
+type SearchExecution = Pick<Execution, "id" | "inputText" | "resultSummary" | "promptMarker">;
+
+export function conversationMatchesSearch(
+  title: string,
+  executions: readonly Pick<SearchExecution, "inputText" | "resultSummary">[],
+  messages: unknown[],
+  query: string,
+) {
+  const term = query.trim().toLocaleLowerCase();
+  if (!term) return false;
+  if (title.toLocaleLowerCase().includes(term)) return true;
+  return findConversationSearchContent(executions, messages, query) !== null;
+}
+
+function contentSearchMatch(text: string, query: string) {
+  const term = query.trim().toLocaleLowerCase();
+  if (!term) return null;
+  const start = text.toLocaleLowerCase().indexOf(term);
+  if (start < 0) return null;
+
+  const end = start + term.length;
+  const contextStart = Math.max(0, start - 80);
+  const contextEnd = Math.min(text.length, end + 100);
+  return {
+    before: `${contextStart > 0 ? "…" : ""}${text.slice(contextStart, start)}`,
+    match: text.slice(start, end),
+    after: `${text.slice(end, contextEnd)}${contextEnd < text.length ? "…" : ""}`,
+  };
+}
+
+export function findConversationSearchContent(
+  executions: readonly Pick<SearchExecution, "inputText" | "resultSummary">[],
+  messages: unknown[],
+  query: string,
+) {
+  for (const execution of executions) {
+    const inputMatch = contentSearchMatch(execution.inputText, query);
+    if (inputMatch) return inputMatch;
+    if (execution.resultSummary) {
+      const summaryMatch = contentSearchMatch(execution.resultSummary, query);
+      if (summaryMatch) return summaryMatch;
+    }
+  }
+  for (const message of messages) {
+    if (messageRole(message) !== "user" && messageRole(message) !== "assistant") continue;
+    const parts = runtimeMessageInfo(message)?.parts
+      .filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "text");
+    const messageMatch = contentSearchMatch(textOfParts(parts), query);
+    if (messageMatch) return messageMatch;
+  }
+  return null;
+}
+
+export async function searchConversationContent(
+  userId: string,
+  input: { query: string; agentKeys: string[] },
+): Promise<ConversationSearchResult[]> {
+  const query = input.query.trim();
+  if (!query) return [];
+  const [assignments, queued] = await Promise.all([
+    assignedLeadAgents(userId),
+    prisma.execution.findMany({
+      where: { userId, status: ExecutionStatus.QUEUED },
+      select: { id: true, userId: true, status: true },
+      orderBy: { queueSequence: "asc" },
+    }),
+  ]);
+  const agentNames = new Map(assignments.map(({ agent }) => [agent.key, agent.displayName]));
+  const assignedKeys = [...agentNames.keys()];
+  const selectedKeys = input.agentKeys.length
+    ? assignedKeys.filter((key) => input.agentKeys.includes(key))
+    : assignedKeys;
+  if (!selectedKeys.length) return [];
+
+  const conversations = await prisma.conversation.findMany({
+    where: { ...conversationHomeWhere(userId), lastAgentKey: { in: selectedKeys } },
+    include: { executions: { orderBy: { createdAt: "desc" } } },
+    orderBy: { updatedAt: "desc" },
+  });
+  const matches = new Map<string, ReturnType<typeof findConversationSearchContent>>();
+  const runtimeCandidates = conversations.filter((conversation) => {
+    const titleMatched = conversation.title.toLocaleLowerCase().includes(query.toLocaleLowerCase());
+    const matchedContent = findConversationSearchContent(conversation.executions, [], query);
+    if (titleMatched || matchedContent) {
+      matches.set(conversation.id, matchedContent);
+    }
+    return !matchedContent && Boolean(conversation.nativeSessionId);
+  });
+
+  if (runtimeCandidates.length) {
+    try {
+      const connection = await connectRuntimeForRead(userId);
+      let nextIndex = 0;
+      const worker = async () => {
+        while (nextIndex < runtimeCandidates.length) {
+          const conversation = runtimeCandidates[nextIndex++];
+          const messages = await runtimeRequest<unknown[]>(
+            connection,
+            "GET",
+            `/api/session/${conversation.nativeSessionId}/message`,
+            undefined,
+            15_000,
+          );
+          const matchedContent = findConversationSearchContent(
+            [],
+            sanitizeRuntimeMessages(messages, conversation.executions),
+            query,
+          );
+          if (matchedContent) matches.set(conversation.id, matchedContent);
+        }
+      };
+      await Promise.all(
+        Array.from({ length: Math.min(4, runtimeCandidates.length) }, () => worker()),
+      );
+    } catch (error) {
+      if (error instanceof ConversationServiceError) throw error;
+      throw new ConversationServiceError(
+        `搜索对话内容失败：${error instanceof Error ? error.message : "运行环境连接错误"}`,
+        503,
+      );
+    }
+  }
+
+  const positions = queuePositions(queued);
+  return conversations
+    .filter((conversation) => matches.has(conversation.id))
+    .map((conversation) => ({
+      conversation: conversationSummary(conversation, positions),
+      agentName: agentNames.get(conversation.lastAgentKey) ?? conversation.lastAgentKey,
+      matchedContent: matches.get(conversation.id) ?? null,
+    }));
+}
+
 export async function createConversation(input: {
   userId: string;
   leadAgentKey: string;
@@ -723,13 +870,15 @@ export async function forkConversation(input: {
   userId: string;
   conversationId: string;
   messageId: string;
+  replaceExisting?: boolean;
 }): Promise<ForkConversationResponse> {
   // Check ownership before connecting to any user's runtime.
   await requireOwnedConversation(input.userId, input.conversationId);
   const connection = await connectRuntimeForRead(input.userId);
   let forkedSessionId: string | null = null;
+  let replacedNativeSessionId: string | null = null;
   try {
-    return await withUserConfigLock(input.userId, async (tx) => {
+    const result = await withUserConfigLock(input.userId, async (tx) => {
       const conversation = await tx.conversation.findFirst({
         where: ownedConversationWhere(input.userId, input.conversationId),
       });
@@ -758,6 +907,9 @@ export async function forkConversation(input: {
       }
       const messages = await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${conversation.nativeSessionId}/message`);
       const point = conversationForkPoint(messages, input.messageId);
+      const boundary = input.replaceExisting
+        ? { beforeMessageId: input.messageId, messageCount: point.index }
+        : conversationForkBoundary(messages, input.messageId);
       const historyExecutions = await visibleHistoryExecutions(input.userId, messages, []);
       const selected = runtimeMessageInfo(sanitizeRuntimeMessages([point.message], historyExecutions)[0]);
       const attachments: ConversationAttachment[] = (selected?.parts ?? []).flatMap((part) => {
@@ -766,14 +918,34 @@ export async function forkConversation(input: {
           typeof file.filename !== "string" || typeof file.mime !== "string") return [];
         return [{ path: file.url.slice(7), filename: file.filename, mime: file.mime }];
       });
-      // OpenCode excludes messageID and everything after it. The selected
-      // message becomes an editable draft; the model keeps the prior turns.
+      // Replacing a conversation excludes the selected question. A branch
+      // excludes the next user question, preserving the selected full turn.
       const forked = await runtimeRequest<RuntimeSession>(connection, "POST", `/api/session/${conversation.nativeSessionId}/fork`, {
-        before: input.messageId,
+        ...(boundary.beforeMessageId ? { before: boundary.beforeMessageId } : {}),
       });
       forkedSessionId = forked.id;
       const copied = await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${forked.id}/message`);
-      if (copied.length !== point.index) throw new ConversationServiceError("会话分支的历史边界无法确认", 503);
+      if (copied.length !== boundary.messageCount) throw new ConversationServiceError("会话分支的历史边界无法确认", 503);
+      if (input.replaceExisting) {
+        await runtimeRequest(connection, "PATCH", `/api/session/${forked.id}`, {
+          title: `opshelper:${conversation.id}`,
+          permissions: nativeTaskPermissions(connection.runtime),
+        });
+        const replaced = await tx.conversation.update({
+          where: { id: conversation.id },
+          data: {
+            nativeSessionId: forked.id,
+            lastConfigGeneration: container.appliedGeneration,
+          },
+        });
+        replacedNativeSessionId = conversation.nativeSessionId;
+        return {
+          conversationId: replaced.id,
+          leadAgentKey: replaced.lastAgentKey,
+          text: textOfParts((selected?.parts ?? []).filter((part) => (part as { type?: string }).type === "text")),
+          attachments,
+        };
+      }
       const created = await tx.conversation.create({
         data: {
           userId: input.userId,
@@ -790,10 +962,23 @@ export async function forkConversation(input: {
       return {
         conversationId: created.id,
         leadAgentKey: created.lastAgentKey,
-        text: textOfParts((selected?.parts ?? []).filter((part) => (part as { type?: string }).type === "text")),
-        attachments,
+        text: "",
+        attachments: [],
       };
     });
+    if (replacedNativeSessionId) {
+      try {
+        await runtimeRequest(connection, "DELETE", `/api/session/${replacedNativeSessionId}`);
+      } catch (error) {
+        return {
+          ...result,
+          cleanupWarning: error instanceof Error
+            ? `旧运行时会话清理失败：${error.message}`
+            : "旧运行时会话清理失败",
+        };
+      }
+    }
+    return result;
   } catch (error) {
     // Only the new, uncommitted native session can be removed. The source and
     // its workspace are never reverted or changed by this action.

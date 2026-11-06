@@ -232,11 +232,13 @@ export function AgentManagementPanel({
   initialAgents,
   users,
   scope = "admin",
+  initialCreate = false,
   onPersonalAgentsChanged,
 }: {
   initialAgents: AgentSummary[];
   users: UserItem[];
   scope?: "admin" | "user";
+  initialCreate?: boolean;
   onPersonalAgentsChanged?: () => Promise<void>;
 }) {
   const adminScope = scope === "admin";
@@ -246,7 +248,9 @@ export function AgentManagementPanel({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detail, setDetail] = useState<AgentDetail | null>(null);
   const [deleteHintDismissed, setDeleteHintDismissed] = useState(false);
-  const [editorMode, setEditorMode] = useState<EditorMode>(initialAgents.length ? "view" : "create");
+  const [editorMode, setEditorMode] = useState<EditorMode>(
+    initialCreate || !initialAgents.length ? "create" : "view",
+  );
   const [agentKey, setAgentKey] = useState("");
   const [files, setFiles] = useState<Record<string, string>>({ "agent.md": NEW_AGENT_TEMPLATE });
   const [binaryFiles, setBinaryFiles] = useState<Record<string, string>>({});

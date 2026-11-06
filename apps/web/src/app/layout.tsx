@@ -22,6 +22,10 @@ const body = DM_Sans({
 export const metadata: Metadata = {
   title: "小信运维助手",
   description: "小信运维助手 opencode 智能助理网关。",
+  icons: {
+    icon: "/brand/xiaoxin-ops-logo.webp",
+    apple: "/brand/xiaoxin-ops-logo.webp",
+  },
 };
 
 export default function RootLayout({

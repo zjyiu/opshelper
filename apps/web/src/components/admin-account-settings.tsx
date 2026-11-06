@@ -6,18 +6,22 @@ import { changePassword } from "@/lib/browser-api";
 
 export function AdminAccountSettings({
   username,
+  showTitle = true,
 }: {
   username: string;
+  showTitle?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [pending, startTransition] = useTransition();
 
   return (
-    <article className="panel panel-form">
-      <div className="panel-header">
-        <div className="panel-title">账户信息</div>
-      </div>
+    <article className="panel panel-form profile-account-settings">
+      {showTitle ? (
+        <div className="panel-header">
+          <div className="panel-title">账户信息</div>
+        </div>
+      ) : null}
 
       <div className="field">
         <span className="field-label">用户名</span>
