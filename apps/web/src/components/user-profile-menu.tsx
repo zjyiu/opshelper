@@ -11,6 +11,7 @@ import { AdminAccountSettings } from "./admin-account-settings";
 import { ContainerActions, startActionState, stopActionState } from "./container-actions";
 import { IconClose, IconContainer, IconSliders } from "./chat/icons";
 import { StatusPill } from "./status-pill";
+import { UserProfileName } from "./user-profile-name";
 
 type ProfileUser = {
   name: string;
@@ -21,7 +22,6 @@ type ProfileUser = {
 type ProfilePanel = "container" | "account";
 
 export function UserProfileMenu({ user }: { user: ProfileUser }) {
-  const displayName = user.role === "admin" ? user.username : user.name;
   const [menuOpen, setMenuOpen] = useState(false);
   const [panel, setPanel] = useState<ProfilePanel | null>(null);
   const [snapshot, setSnapshot] = useState<UserPortalSnapshot | null>(null);
@@ -159,10 +159,7 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
         title="用户菜单"
         onClick={() => setMenuOpen((open) => !open)}
       >
-        <span className="opshelper-user-avatar">
-          {Array.from(displayName.trim() || user.username)[0]?.toUpperCase()}
-        </span>
-        <span className="opshelper-user-name">{displayName}</span>
+        <UserProfileName name={user.name} username={user.username} />
       </button>
       {menuOpen ? (
         <div className="opshelper-user-menu" id={menuId} role="menu" aria-label="用户菜单" ref={menuRef}>

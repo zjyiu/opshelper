@@ -177,6 +177,7 @@ def init(args):
         'POSTGRES_PASSWORD': secrets.token_urlsafe(32), 'OPSHELPER_ADMIN_PASSWORD': admin_password,
         'OPSHELPER_HTTP_HOST': '127.0.0.1', 'OPSHELPER_HTTP_PORT': str(args.port),
         'OPSHELPER_SESSION_COOKIE_NAME': args.project.replace('-', '_') + '_session',
+        'OPSHELPER_SSO_ENCRYPTION_KEY': secrets.token_hex(32),
         'OPENCODE_DOCKER_IMAGE': 'opshelper/opencode-runtime:2.0.27',
     }
     # Compose interpolation is disabled by single quotes; reject newlines/quotes in values.

@@ -57,6 +57,7 @@ cp .env.example .env
 chmod 600 .env
 openssl rand -hex 24
 openssl rand -hex 18
+openssl rand -hex 32
 stat -c '%g' /var/run/docker.sock
 ```
 
@@ -65,6 +66,8 @@ stat -c '%g' /var/run/docker.sock
 ```dotenv
 POSTGRES_PASSWORD=填写第一次随机字符串
 OPSHELPER_ADMIN_PASSWORD=填写第二次随机字符串
+OPSHELPER_SSO_SECRET=如需免密登录，在此填写双方安全约定的共享密钥
+OPSHELPER_SSO_ENCRYPTION_KEY=填写第三次随机字符串
 DATA_ROOT_HOST=/opt/opshelper/data
 OPSHELPER_UID=1000
 OPSHELPER_GID=1000

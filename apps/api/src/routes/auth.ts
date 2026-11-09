@@ -13,6 +13,11 @@ import {
 import { hashPassword, verifyPassword } from "../lib/password";
 import { prisma } from "../lib/prisma";
 import { getSessionResponse } from "../lib/container-views";
+import {
+  authenticateSsoAccount,
+  SsoConfigurationError,
+  SsoTokenError,
+} from "../lib/sso-service";
 
 const loginSchema = z.object({
   username: z.string().trim().min(3).max(32),
@@ -27,6 +32,10 @@ const changePasswordSchema = z.object({
 const desktopOpenSchema = z.object({
   _token: z.string().trim().min(1),
   redirect: z.string().trim().optional(),
+});
+
+const ssoQuerySchema = z.object({
+  account: z.string().min(1).max(2048),
 });
 
 export function resolveDesktopOpenRedirect(redirect?: string) {
@@ -87,6 +96,40 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
     await createSession(reply, auth.user.id);
     return reply.redirect(redirectPath);
+  });
+
+  app.get("/v1/auth/sso", async (request, reply) => {
+    reply.header("Referrer-Policy", "no-referrer").header("Cache-Control", "no-store");
+    const parsed = ssoQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.redirect("/gateway/login?ssoError=failed");
+    }
+
+    try {
+      const username = await authenticateSsoAccount(parsed.data.account);
+      if (!username) {
+        return reply.redirect("/gateway/login?ssoError=failed");
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { username },
+        select: { id: true, isActive: true },
+      });
+      if (!user?.isActive) {
+        return reply.redirect("/gateway/login?ssoError=failed");
+      }
+
+      await createSession(reply, user.id);
+      return reply.redirect("/gateway/chat");
+    } catch (error) {
+      if (error instanceof SsoTokenError) {
+        return reply.redirect("/gateway/login?ssoError=failed");
+      }
+      if (error instanceof SsoConfigurationError) {
+        return reply.redirect("/gateway/login?ssoError=unavailable");
+      }
+      throw error;
+    }
   });
 
   app.post("/v1/auth/logout", async (request, reply) => {

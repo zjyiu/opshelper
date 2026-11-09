@@ -21,6 +21,7 @@ import {
   IconContainer,
   IconClose,
   IconMenu,
+  IconShield,
   IconSkill,
   IconUsers,
 } from "./chat/icons";
@@ -71,6 +72,12 @@ const ADMIN_NAV: AdminNavItem[] = [
     label: "技能仓库",
     description: "技能新增、删除与检索",
     icon: <IconSkill />,
+  },
+  {
+    href: "/admin/sso",
+    label: "免密登录",
+    description: "共享密钥与账号白名单",
+    icon: <IconShield />,
   },
 ];
 

@@ -21,9 +21,19 @@ function IconEye({ open }: { open: boolean }) {
   );
 }
 
-export function LoginForm() {
+export function LoginForm({
+  ssoError,
+}: {
+  ssoError?: "failed" | "unavailable";
+}) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    ssoError === "unavailable"
+      ? "免密登录暂不可用，请联系管理员检查配置。"
+      : ssoError === "failed"
+        ? "免密登录失败，请联系管理员检查账号白名单及用户状态。"
+        : null,
+  );
   const [showPassword, setShowPassword] = useState(false);
   const [isPending, startTransition] = useTransition();
 

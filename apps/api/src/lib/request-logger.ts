@@ -4,7 +4,7 @@ export function redactRequestUrl(url: string) {
   try {
     const parsed = new URL(url, "http://localhost");
     for (const key of [...parsed.searchParams.keys()]) {
-      if (/(?:token|password|secret|api[_-]?key|authorization)/i.test(key)) {
+      if (/(?:token|password|secret|api[_-]?key|authorization|^account$)/i.test(key)) {
         parsed.searchParams.set(key, "[REDACTED]");
       }
     }

@@ -6,8 +6,9 @@ import Fastify from "fastify";
 import { redactRequestUrl, requestLoggerOptions } from "./request-logger";
 
 test("request URLs redact encoded and repeated credential parameters", () => {
-  const url = redactRequestUrl("/v1/auth/desktop-open?%5Ftoken=secret-one&_token=secret-two&API_KEY=secret-three&redirect=%2Fchat");
+  const url = redactRequestUrl("/v1/auth/desktop-open?%5Ftoken=secret-one&_token=secret-two&API_KEY=secret-three&account=sso-token&redirect=%2Fchat");
   assert.ok(!url.includes("secret-"));
+  assert.ok(!url.includes("sso-token"));
   assert.match(url, /redirect=%2Fchat/);
   assert.equal(redactRequestUrl("/health"), "/health");
 });

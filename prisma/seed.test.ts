@@ -33,3 +33,22 @@ test("bootstrap rejects existing business data before creating or changing users
   } as unknown as import("@prisma/client").PrismaClient;
   await assert.rejects(bootstrapEmptyDatabase(client, { OPSHELPER_ADMIN_PASSWORD: "a-secure-test-password" }), /已有业务数据/);
 });
+
+test("bootstrap creates the initial admin with admin as display name", async () => {
+  const { bootstrapEmptyDatabase } = await import("./seed");
+  let createdUser: { username: string; name: string; role: string } | undefined;
+  const client = {
+    $transaction: async (action: (tx: unknown) => Promise<unknown>) => action({
+      $queryRaw: async () => [{ populated: false }],
+      user: { create: async ({ data }: { data: typeof createdUser }) => {
+        createdUser = data;
+        return { id: "admin-id" };
+      } },
+      containerInstance: { create: async () => ({}) },
+    }),
+  } as unknown as import("@prisma/client").PrismaClient;
+  assert.equal(await bootstrapEmptyDatabase(client, { OPSHELPER_ADMIN_PASSWORD: "a-secure-test-password" }), "admin-id");
+  assert.equal(createdUser?.username, "admin");
+  assert.equal(createdUser?.name, "admin");
+  assert.equal(createdUser?.role, "ADMIN");
+});

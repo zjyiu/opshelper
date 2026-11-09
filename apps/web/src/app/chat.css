@@ -2142,6 +2142,46 @@
 }
 .opshelper-page-body .agent-assignment-option:hover { border-color: var(--g-line-strong); background: var(--g-field); }
 .opshelper-page-body .agent-assignment-option.checked { border-color: var(--g-accent-line); background: var(--g-accent-soft); }
+.opshelper-page-body .sso-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.opshelper-page-body .sso-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 13px;
+  border: 1px solid var(--g-line);
+  border-radius: 12px;
+}
+.opshelper-page-body .sso-user-info {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+.opshelper-page-body .sso-user-info small { color: var(--g-muted); }
+.sso-user-dialog,
+.sso-token-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+.sso-user-dialog:not([open]),
+.sso-token-dialog:not([open]) { display: none; }
+.sso-user-dialog::backdrop,
+.sso-token-dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
+.sso-picker-list { display: grid; gap: 8px; overflow-y: auto; min-height: 0; max-height: min(320px, 40vh); }
+.sso-picker-option { display: flex; align-items: flex-start; gap: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+.sso-picker-option input { margin-top: 3px; accent-color: var(--accent); }
+.sso-picker-option span { display: grid; min-width: 0; gap: 3px; overflow-wrap: anywhere; }
+.sso-picker-option small { color: var(--muted); }
 /* ---- 技能仓库：管理页与「智能体 → 从仓库导入」共用的卡片列表 ---- */
 /* 面板头右侧的数量做成小胶囊，和「容器列表」的「共 N 个」一致。 */
 .opshelper-page-body .panel-header > .mono.muted {

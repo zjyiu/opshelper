@@ -27,7 +27,9 @@ python3 scripts/opshelper.py status
 python3 scripts/opshelper.py down
 ```
 
-`init` 拒绝覆盖已有 `.env` 或非空数据目录。它在当前部署目录生成 `.env` 和 `data/`，写入宿主绝对路径、当前 UID/GID、随机数据库密码和随机管理员密码。可通过 `--admin-password` 指定初始管理员密码（至少 6 位），例如 `python3 scripts/opshelper.py init --admin-password zjyzjy`；命令行参数可能被 shell 历史或进程列表记录，建议默认使用随机密码，或在安全环境中执行。配置文件权限为 600，不输出密码。账号为 `admin`，初始密码查看本机 `.env` 的 `OPSHELPER_ADMIN_PASSWORD`。不创建演示用户。`bootstrap` 仅允许空数据库；已有任意业务数据时拒绝运行。升级、重启和恢复不运行 seed，也不会重置管理员密码。
+`init` 拒绝覆盖已有 `.env` 或非空数据目录。它在当前部署目录生成 `.env` 和 `data/`，写入宿主绝对路径、当前 UID/GID、随机数据库密码、随机管理员密码和免密登录密钥加密密钥。可通过 `--admin-password` 指定初始管理员密码（至少 6 位），例如 `python3 scripts/opshelper.py init --admin-password zjyzjy`；命令行参数可能被 shell 历史或进程列表记录，建议默认使用随机密码，或在安全环境中执行。配置文件权限为 600，不输出密码。账号为 `admin`，初始密码查看本机 `.env` 的 `OPSHELPER_ADMIN_PASSWORD`。不创建演示用户。`bootstrap` 仅允许空数据库；已有任意业务数据时拒绝运行。升级、重启和恢复不运行 seed，也不会重置管理员密码。
+
+新安装的初始管理员显示名称为 `admin`。升级迁移仅将账号为 `admin` 且仍使用旧默认显示名称 `Platform Admin` 的管理员改为 `admin`；自定义显示名称和其他账号不受影响。
 
 默认访问 `http://127.0.0.1:8080/`。新目录也可以显式指定：
 
@@ -62,6 +64,8 @@ deployment/
 `control` 内部网络连接数据库和应用；`runtime` 提供模型访问和用户容器连接，nginx 同时接入以发布宿主端口。用户容器不发布端口、不挂 Docker socket，也不挂其他用户或数据库目录。
 
 要开放局域网，在 `.env` 将 `OPSHELPER_HTTP_HOST` 改成指定局域网 IP，再重新 `up`；必须实际访问 `/health`，Docker 显示端口映射不等于入口可达。生产公网入口应配置 HTTPS。账号、模型密钥和备份不可进入 Git、工单或普通日志。
+
+配置对端免密登录时，在部署目录 `.env` 设置 `OPSHELPER_SSO_SECRET` 为双方约定的共享密钥；新部署的 `init` 已自动生成独立随机的 `OPSHELPER_SSO_ENCRYPTION_KEY`。不要将共享密钥写入仓库；初始共享密钥也可在管理员“免密登录”页面设置。页面保存的共享密钥在数据库中使用加密密钥保护，因此必须备份并保持 `OPSHELPER_SSO_ENCRYPTION_KEY` 稳定。进入管理员“免密登录”页面维护账号白名单；未在白名单、没有匹配到已启用 opshelper 用户的账号均不能登录。对端入口为 `/v1/auth/sso?account=<令牌>`，应只通过 HTTPS 联调。具体配置和验证步骤见[管理员手册的免密登录章节](admin.md#免密登录)。
 
 ## 更新与重启
 

@@ -137,6 +137,13 @@ model Session {
   @@index([userId, expiresAt])
 }
 
+model SsoSettings {
+  id               String   @id @default("default")
+  encryptedSecret  String?
+  accountWhitelist String[] @default([])
+  updatedAt        DateTime @updatedAt
+}
+
 model ContainerInstance {
   id                 String              @id @default(cuid())
   userId             String              @unique

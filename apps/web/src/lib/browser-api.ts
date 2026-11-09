@@ -26,6 +26,8 @@ import type {
   SkillPackageImport,
   SkillRepositorySkillSummary,
   SkillRepositorySnapshot,
+  SsoSettingsSnapshot,
+  SsoTokenResponse,
   UserPortalSnapshot,
 } from "@opshelper/shared";
 
@@ -169,6 +171,31 @@ export async function createSkillRepositorySkill(file: File) {
 export async function deleteSkillRepositorySkill(skillName: string) {
   return fetchJson<void>(`/v1/admin/skill-repository/${encodeURIComponent(skillName)}`, {
     method: "DELETE",
+  });
+}
+
+export async function updateSsoSecret(secret: string) {
+  return fetchJson<Pick<SsoSettingsSnapshot, "secretConfigured">>("/v1/admin/sso/secret", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret }),
+  });
+}
+
+export async function updateSsoWhitelist(accountWhitelist: string[]) {
+  return fetchJson<Pick<SsoSettingsSnapshot, "accountWhitelist">>("/v1/admin/sso/whitelist", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accountWhitelist }),
+  });
+}
+
+export async function generateSsoToken(userId: string) {
+  return fetchJson<SsoTokenResponse>(`/v1/admin/sso/users/${encodeURIComponent(userId)}/token`, {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
   });
 }
 

@@ -89,6 +89,23 @@ export interface AdminSnapshot {
   nextSteps: string[];
 }
 
+export interface SsoSettingsSnapshot {
+  accountWhitelist: string[];
+  secretConfigured: boolean;
+  encryptionKeyConfigured: boolean;
+}
+
+export interface UpdateSsoSettingsRequest {
+  accountWhitelist: string[];
+  secret?: string;
+}
+
+export interface SsoTokenResponse {
+  token: string;
+  isActive: boolean;
+  isWhitelisted: boolean;
+}
+
 export interface LoginRequest {
   username: string;
   password: string;

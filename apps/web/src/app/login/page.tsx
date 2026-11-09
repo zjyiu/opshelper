@@ -4,13 +4,21 @@ import { BrandLogo } from "@/components/chat/icons";
 import { LoginForm } from "@/components/login-form";
 import { getSession } from "@/lib/api";
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ssoError?: string | string[] }>;
+}) {
   const session = await getSession();
 
   if (session.authenticated && session.user) {
     redirect("/chat");
   }
 
+  const params = await searchParams;
+  const ssoError = params.ssoError === "failed" || params.ssoError === "unavailable"
+    ? params.ssoError
+    : undefined;
 
   return (
     <div className="shell shell-sidebar-hidden shell-headerless">
@@ -23,7 +31,7 @@ export default async function LoginPage() {
                   <BrandLogo size={88} className="login-brand-mark" />
                   <div className="panel-title">小信运维助手</div>
                 </div>
-                <LoginForm />
+                <LoginForm ssoError={ssoError} />
               </article>
             </div>
           </div>

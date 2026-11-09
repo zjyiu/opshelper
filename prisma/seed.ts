@@ -35,7 +35,7 @@ export async function bootstrapEmptyDatabase(client: PrismaClient, env = process
     }
     const passwordHash = await hashPassword(resolveInitialAdminPassword(env));
     const user = await tx.user.create({
-      data: { username: "admin", name: "Platform Admin", role: "ADMIN", passwordHash },
+      data: { username: "admin", name: "admin", role: "ADMIN", passwordHash },
     });
     await tx.containerInstance.create({
       data: {

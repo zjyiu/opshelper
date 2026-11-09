@@ -7,6 +7,7 @@ import {
   type AdminUsersSnapshot,
   type ChatModelsResponse,
   type SkillRepositorySnapshot,
+  type SsoSettingsSnapshot,
   type SessionResponse,
   type UserPortalSnapshot,
 } from "@opshelper/shared";
@@ -80,6 +81,10 @@ export async function getUserAgentCatalogSnapshot(): Promise<AdminAgentsSnapshot
 
 export async function getSkillRepositorySnapshot(): Promise<SkillRepositorySnapshot | null> {
   return fetchJson<SkillRepositorySnapshot>("/v1/skill-repository");
+}
+
+export async function getSsoSettings(): Promise<SsoSettingsSnapshot | null> {
+  return fetchJson<SsoSettingsSnapshot>("/v1/admin/sso");
 }
 
 export function getSessionCookieName() {
