@@ -27,7 +27,6 @@
   --g-shadow: 0 16px 36px rgba(0, 166, 81, 0.1);
   --g-shadow-sm: 0 8px 20px rgba(0, 166, 81, 0.08);
   --g-side-w: var(--g-side-user, var(--g-side-default));
-  --g-art-w: var(--g-art-user, 360px);
   --g-op-viewport: 292px;       /* 操作记录明细区的固定高度，约 4 行 */
   /* 阅读列：正文、输入区、提示与授权卡片共用宽度上限，大屏时同步加宽。 */
   --g-read-w: 800px;
@@ -51,9 +50,6 @@
   font-family: var(--font-body), -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-}
-.opshelper-shell.opshelper-shell-files {
-  grid-template-columns: var(--g-side-w) 1fr var(--g-art-w);
 }
 .opshelper-shell ::-webkit-scrollbar { width: 9px; height: 9px; }
 .opshelper-shell ::-webkit-scrollbar-thumb { background: rgba(17, 24, 39, 0.13); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
@@ -538,13 +534,6 @@
   font-size: 14px; font-weight: 400; color: var(--g-muted); line-height: 1.35;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.opshelper-topbar-toggle {
-  border: none; background: transparent; cursor: pointer; color: var(--g-muted);
-  width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
-}
-.opshelper-topbar-toggle:hover { background: var(--g-field); color: var(--g-accent-dark); }
-.opshelper-topbar-toggle.active { background: var(--g-accent-soft); color: var(--g-accent-dark); }
-
 /* The conversation + its floating preview card share a positioned stage so the
    card can pin to the top-right of the chat area without overlapping the topbar. */
 .opshelper-stage {
@@ -1130,7 +1119,7 @@
 .opshelper-sending-hint { order: 2; color: var(--g-muted); font-size: 12px; white-space: nowrap; }
 .opshelper-sending-hint { color: var(--g-accent-dark); }
 
-/* ---- attachment panel header ---- */
+/* ---- referenced files dialog ---- */
 .opshelper-files-head { height: 50px; flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--g-line); }
 .opshelper-files-title { flex: 1; font-size: 14px; font-weight: 600; color: var(--g-text); }
 .opshelper-files-head button {
@@ -1139,27 +1128,57 @@
 }
 .opshelper-files-head button:hover { background: var(--g-field); color: var(--g-text); }
 
-/* 右侧只负责给当前输入添加附件；完整文件操作在“我的文件”页面。 */
-.opshelper-attachment-panel {
-  display: flex; flex-direction: column; min-width: 0; min-height: 0;
-  border-left: 1px solid var(--g-line); background: var(--g-bg);
+.opshelper-reference-backdrop {
+  z-index: 40;
+  background: rgba(15, 23, 42, .62);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.opshelper-reference-dialog {
+  --g-accent: #00a651;
+  --g-accent-dark: #00843d;
+  --g-accent-soft: #e6f4ea;
+  --g-accent-line: #a9d6b6;
+  --g-bg: #fff;
+  --g-line: #edf0f7;
+  --g-text: #1f2937;
+  --g-muted: #64748b;
+  --g-faint: #64748b;
+  --g-field: #f1f5f9;
+  display: flex; flex-direction: column; width: min(680px, 100%); height: min(640px, 84vh);
+  min-height: min(440px, 84vh); max-height: 84vh; overflow: hidden; padding: 0;
+  border: 1px solid var(--g-line); border-radius: 16px;
+  background: #fff; color: var(--g-text);
+  box-shadow: 0 20px 48px rgba(15, 23, 42, .2);
+}
+.opshelper-reference-dialog:focus { outline: none; }
+.opshelper-reference-tabs {
+  display: flex; flex: 0 0 auto; gap: 6px; padding: 12px 16px 8px;
+  border-bottom: 1px solid var(--g-line);
+}
+.opshelper-reference-tabs button {
+  min-height: 34px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--g-muted); font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.opshelper-reference-tabs button:hover { background: var(--g-field); color: var(--g-text); }
+.opshelper-reference-tabs button.active {
+  border-color: var(--g-accent-line); background: var(--g-accent-soft);
+  color: var(--g-accent-dark); font-weight: 600;
 }
 .opshelper-attachment-back { display: grid; place-items: center; transform: rotate(180deg); }
 .opshelper-attachment-path {
-  padding: 10px 16px; border-bottom: 1px solid var(--g-line); color: var(--g-faint);
-  font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  display: flex; align-items: center; gap: 8px; min-height: 38px; box-sizing: border-box;
+  padding: 5px 16px; border-bottom: 1px solid var(--g-line); color: var(--g-faint);
+  font-size: 12px; overflow: hidden; white-space: nowrap;
 }
-/* 上传是附件的次要动作，使用与输入区次要按钮一致的小号描边样式，
-   不再用整行主色按钮抢占视觉重心。 */
-.opshelper-attachment-actions { display: flex; padding: 10px 16px 4px; }
-.opshelper-attachment-actions .opshelper-btn {
-  width: auto; min-height: 32px; display: inline-flex; align-items: center; gap: 6px;
-  padding: 0 11px; border: 1px solid var(--g-accent-line); border-radius: 8px;
-  background: var(--g-accent-soft); color: var(--g-accent-dark);
-  font: inherit; font-size: 12.5px; font-weight: 600; box-shadow: none;
+.opshelper-attachment-path > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.opshelper-attachment-path button {
+  display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--g-muted); cursor: pointer;
 }
-.opshelper-attachment-actions .opshelper-btn:hover { border-color: var(--g-accent); background: var(--g-accent-soft2); }
-.opshelper-attachment-actions .opshelper-icon { width: 15px; height: 15px; }
+.opshelper-attachment-path button:hover { background: var(--g-field); color: var(--g-text); }
+.opshelper-attachment-back .opshelper-icon { width: 15px; height: 15px; }
 .opshelper-attachment-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 12px; }
 .opshelper-attachment-row {
   width: 100%; min-height: 42px; display: flex; align-items: center; gap: 9px;
@@ -1167,7 +1186,7 @@
   color: var(--g-text); font: inherit; font-size: 13px; text-align: left;
 }
 .opshelper-attachment-row:hover { background: var(--g-field); }
-.opshelper-attachment-row > span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.opshelper-attachment-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .opshelper-attachment-row > .opshelper-icon { color: var(--g-muted); }
 .opshelper-attachment-open {
   min-width: 0; flex: 1; display: flex; align-items: center; gap: 9px;
@@ -1192,15 +1211,10 @@
 .opshelper-attachment-delete .opshelper-icon { width: 16px; height: 16px; }
 .opshelper-attachment-add {
   border: 1px solid var(--g-accent-line); border-radius: 7px; padding: 5px 9px;
-  background: var(--g-accent-soft); color: var(--g-accent-dark); cursor: pointer;
+  background: var(--g-accent-soft); color: var(--g-accent-dark); cursor: pointer; font: inherit; font-size: 12px;
 }
 .opshelper-attachment-empty, .opshelper-attachment-error { padding: 28px 12px; text-align: center; color: var(--g-faint); font-size: 13px; }
 .opshelper-attachment-error { color: #b3423a; }
-.opshelper-attachment-manage {
-  padding: 13px 16px; border-top: 1px solid var(--g-line); color: var(--g-accent-dark);
-  font-size: 13px; text-align: center; text-decoration: none;
-}
-.opshelper-attachment-manage:hover { background: var(--g-accent-soft); }
 
 .opshelper-execution-stack { width: 100%; max-width: var(--g-read-w); }
 /* 协作过程固定在输入区上沿、分割线上方：与对话同一片底色，但属于不滚动的固定条；
@@ -1272,23 +1286,13 @@
   .opshelper-shell { --g-read-w: 1040px; }
 }
 @media (max-width: 1080px) {
-  .opshelper-shell { --g-art-w: 320px; }
-}
-/* 中间列窄于约 360px 时输入工具条会被挤出行外，附件面板改为右侧浮层。 */
-@media (max-width: 960px) {
-  .opshelper-shell.opshelper-shell-files { grid-template-columns: var(--g-side-w) 1fr; }
-  .opshelper-attachment-panel {
-    position: fixed; z-index: 20; top: 0; right: 0; bottom: 0;
-    width: min(var(--g-art-w), 90vw);
-    box-shadow: -12px 0 34px rgba(17, 24, 39, .14);
-  }
+  .opshelper-reference-dialog { height: min(640px, 88vh); min-height: min(440px, 88vh); max-height: 88vh; }
 }
 @media (max-width: 820px) {
   .opshelper-shell { --g-side-w: 220px; }
 }
 @media (max-width: 640px) {
-  .opshelper-shell,
-  .opshelper-shell.opshelper-shell-files {
+  .opshelper-shell {
     --g-side-w: min(84vw, 320px);
     /* 抽屉是触屏场景：所有可点元素抬到 44px，文字按钮也一样。 */
     --g-control-h: 44px;
@@ -1328,7 +1332,9 @@
   .opshelper-operation-status { grid-column: 3; grid-row: 1; margin-top: 2px; }
   /* 窄屏上阅读列就是可用宽度：提示与卡片只留 10px 边距。 */
   .opshelper-notice, .opshelper-question, .opshelper-permission { width: calc(100% - 20px); max-width: none; }
-  .opshelper-attachment-panel { width: 100vw; }
+  .opshelper-reference-dialog { height: min(720px, 90vh); min-height: min(360px, 90vh); max-height: 90vh; }
+  .opshelper-reference-tabs { gap: 2px; padding: 10px 8px 6px; }
+  .opshelper-reference-tabs button { flex: 1; min-width: 0; padding: 0 5px; font-size: 12px; }
   .opshelper-empty { margin-top: clamp(40px, 11vh, 100px); }
   .opshelper-empty-cards { width: min(100%, 320px); }
   .opshelper-composer-row { gap: 5px; padding: 6px 8px; }
@@ -2347,7 +2353,5 @@
 .opshelper-resizer.dragging::after { background: var(--g-accent); width: 2px; left: 3px; }
 .opshelper-resizer:focus-visible { outline: none; }
 .opshelper-resizer-side { left: calc(var(--g-side-w) - 4px); }
-.opshelper-resizer-art { right: calc(var(--g-art-w) - 4px); }
 body.opshelper-resizing { cursor: col-resize; user-select: none; }
-@media (max-width: 960px) { .opshelper-resizer-art { display: none; } }
 @media (max-width: 640px) { .opshelper-resizer { display: none; } }

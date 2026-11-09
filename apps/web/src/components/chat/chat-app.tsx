@@ -38,7 +38,7 @@ import {
   settleStreamSnapshot,
 } from "./conversation-stream";
 import { guessMime, messageSignature } from "./format";
-import { IconClose, IconFolder } from "./icons";
+import { IconClose } from "./icons";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
 import { fromInitialMessages, sortedMessages, type ChatMessage } from "./message-model";
 import { resolveNewConversationRequest } from "./new-conversation-request";
@@ -146,13 +146,11 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     activeConversationId,
     loading,
     executionBlockedReason,
-    showAttachments,
     newConversationRequest,
     acknowledgeNewConversationRequest,
     refreshHome,
     activateConversation,
     updateConversation,
-    setShowAttachments,
   } = useWorkspace();
   const [snapshot, setSnapshot] = useState<ConversationSnapshot | null>(null);
   const requestedConversationId = searchParams.get("conversation");
@@ -167,6 +165,8 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   const [availableModels, setAvailableModels] = useState(models);
   const [model, setModel] = useState(defaultModel);
   const [notice, setNotice] = useState<string | null>(null);
+  const [referenceFilesOpen, setReferenceFilesOpen] = useState(false);
+  const closeReferenceFiles = useCallback(() => setReferenceFilesOpen(false), []);
   // 首屏示例只能把文字放进草稿，输入框得自己抬起来；每次点击递增一次信号。
   const [composerFocus] = useState(0);
   const [sending, setSending] = useState(false);
@@ -800,16 +800,6 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
               <span>{activeAssistant.name}</span>
             </div>
           </div>
-          <button
-            className={`opshelper-topbar-toggle${showAttachments ? " active" : ""}`}
-            type="button"
-            aria-label={showAttachments ? "关闭附件面板" : "打开附件面板"}
-            aria-expanded={showAttachments}
-            aria-controls="opshelper-attachment-panel"
-            onClick={() => setShowAttachments((value) => !value)}
-          >
-            <IconFolder />
-          </button>
         </header>
         <div className={`opshelper-stage${conversationSurface === "new" && displayedMessages.length === 0 && !(sending || hasActiveExecution || forkingMessageId !== null) ? " opshelper-stage-empty" : ""}`}>
           <Conversation
@@ -904,7 +894,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             }}
             attachments={attachments}
             onAddFiles={addFiles}
-            onRequestReference={() => setShowAttachments(true)}
+            onRequestReference={() => setReferenceFilesOpen(true)}
             onRemoveAttachment={(id) => setAttachments((current) =>
               current.filter((item) => item.id !== id))}
             onSearchFiles={searchFiles}
@@ -913,11 +903,10 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         </div>
       </main>
 
-      {showAttachments ? (
+      {referenceFilesOpen ? (
         <AttachmentPanel
           onAttach={mention}
-          onUpload={addFiles}
-          onClose={() => setShowAttachments(false)}
+          onClose={closeReferenceFiles}
         />
       ) : null}
     </>

@@ -362,7 +362,7 @@ export function Composer({
               type="button"
               onClick={() => setAttachMenuOpen((open) => !open)}
               aria-label="添加附件"
-              title="上传文件或引用工作区文件(夹)"
+              title="上传文件或引用/下载文件"
               aria-haspopup="menu"
               aria-expanded={attachMenuOpen}
               disabled={blocked}
@@ -380,7 +380,7 @@ export function Composer({
                   }}
                 >
                   <IconPaperclip />
-                  <span>上传本机文件</span>
+                  <span>上传文件</span>
                 </button>
                 <button
                   type="button"
@@ -391,7 +391,7 @@ export function Composer({
                   }}
                 >
                   <IconFolder />
-                  <span>引用工作区文件(夹)</span>
+                  <span>引用/下载文件</span>
                 </button>
               </div>
             ) : null}

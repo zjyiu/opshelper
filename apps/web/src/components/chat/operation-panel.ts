@@ -86,8 +86,12 @@ export function operationsTurnKey(operations: ToolOperation[]) {
   return operations[0]?.id ?? null;
 }
 
-export function panelOpen(state: OperationsPanelState, turnKey: string | null) {
-  return turnKey ? state.open[turnKey] ?? false : false;
+export function panelOpen(
+  state: OperationsPanelState,
+  turnKey: string | null,
+  defaultOpen = false,
+) {
+  return turnKey ? state.open[turnKey] ?? defaultOpen : false;
 }
 
 export function rememberPanelOpen(

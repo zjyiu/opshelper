@@ -445,6 +445,8 @@ function OperationDisclosure({
   onInspect?: () => void;
 }) {
   const turnKey = operationsTurnKey(operations);
+  const isExecuting = operations.some((operation) =>
+    operation.status === "pending" || operation.status === "running");
   const [open, setOpen] = useState(false);
   const [showEarlier, setShowEarlier] = useState(false);
   const [pending, setPending] = useState(0);
@@ -452,6 +454,7 @@ function OperationDisclosure({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // 展开状态和滚动位置都按 turnKey 隔离：只影响用户点过的这个工具框。
   const panelRef = useRef<OperationsPanelState>(createOperationsPanelState());
+  const previousExecutionRef = useRef<{ turnKey: string | null; isExecuting: boolean } | null>(null);
   const mountedRef = useRef<HTMLDivElement | null>(null);
   const pinnedRef = useRef(true);
   const seenRef = useRef(operations.length);
@@ -480,12 +483,19 @@ function OperationDisclosure({
     }, 200);
   };
 
-  // 新工具框默认折叠；用户点过的旧工具框只恢复它自己的状态。
+  // 执行中的操作默认展开；转为完成后自动收起。已完成的历史记录恢复用户手动展开状态。
   useLayoutEffect(() => {
-    const stored = loadOperationsPanelState(chatStorage());
+    let stored = loadOperationsPanelState(chatStorage());
+    const previous = previousExecutionRef.current;
+    const justCompleted = previous?.turnKey === turnKey && previous.isExecuting && !isExecuting;
+    if (justCompleted) {
+      stored = rememberPanelOpen(stored, turnKey, false);
+      saveOperationsPanelState(chatStorage(), stored);
+    }
     panelRef.current = stored;
-    setOpen(panelOpen(stored, turnKey));
-  }, [turnKey]);
+    setOpen(justCompleted ? false : panelOpen(stored, turnKey, isExecuting));
+    previousExecutionRef.current = { turnKey, isExecuting };
+  }, [isExecuting, turnKey]);
 
   useLayoutEffect(() => {
     if (!open) return;

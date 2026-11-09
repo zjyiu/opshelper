@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -21,6 +22,7 @@ import type {
   ConversationSummary,
 } from "@opshelper/shared";
 
+import agentDirectoryIcon from "../../public/brand/agent-directory.png";
 import {
   archiveConversation,
   renameConversation,
@@ -33,7 +35,6 @@ import { groupConversationsByAgent } from "./chat/conversation-groups";
 import { cleanTitle, formatConversationTime, formatConversationTimestamp, fullConversationTitle } from "./chat/format";
 import type { NewConversationRequest } from "./chat/new-conversation-request";
 import {
-  IconAgent,
   IconChevron,
   IconClock,
   IconClose,
@@ -66,7 +67,6 @@ interface WorkspaceContextValue {
   activeConversationId: string | null;
   loading: boolean;
   executionBlockedReason: string | null;
-  showAttachments: boolean;
   renameConversationTitle: (conversationId: string, title: string) => Promise<void>;
   showSidebar: boolean;
   newConversationRequest: NewConversationRequest | null;
@@ -77,7 +77,6 @@ interface WorkspaceContextValue {
   selectAgent: (agentKey: string) => void;
   startNewConversation: (prefill?: string, agentKey?: string) => void;
   removeConversation: (conversationId: string) => Promise<void>;
-  setShowAttachments: (value: boolean | ((current: boolean) => boolean)) => void;
   setShowSidebar: (value: boolean) => void;
 }
 
@@ -122,20 +121,13 @@ export function WorkspaceShell({
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [executionBlockedReason, setExecutionBlockedReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showAttachments, setShowAttachments] = useState(false);
   const [sideWidth, setSideWidth] = useState(SIDE_WIDTH.fallback);
-  const [artWidth, setArtWidth] = useState(ART_WIDTH.fallback);
   useEffect(() => {
     setSideWidth(readWidth(SIDE_WIDTH.key, SIDE_WIDTH));
-    setArtWidth(readWidth(ART_WIDTH.key, ART_WIDTH));
   }, []);
   const changeSideWidth = useCallback((width: number) => {
     setSideWidth(width);
     saveWidth(SIDE_WIDTH.key, width);
-  }, []);
-  const changeArtWidth = useCallback((width: number) => {
-    setArtWidth(width);
-    saveWidth(ART_WIDTH.key, width);
   }, []);
   const [showSidebar, setShowSidebar] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -273,7 +265,6 @@ export function WorkspaceShell({
 
   useEffect(() => {
     setShowSidebar(false);
-    if (!pathname.endsWith("/chat")) setShowAttachments(false);
   }, [pathname]);
 
   const activeAgent = useMemo(
@@ -350,7 +341,6 @@ export function WorkspaceShell({
     activeConversationId,
     loading,
     executionBlockedReason,
-    showAttachments,
     showSidebar,
     newConversationRequest,
     acknowledgeNewConversationRequest,
@@ -361,7 +351,6 @@ export function WorkspaceShell({
     startNewConversation,
     removeConversation,
     renameConversationTitle,
-    setShowAttachments,
     setShowSidebar,
   }), [
     activeAgent,
@@ -377,7 +366,6 @@ export function WorkspaceShell({
     removeConversation,
     renameConversationTitle,
     selectAgent,
-    showAttachments,
     showSidebar,
     startNewConversation,
     updateConversation,
@@ -387,8 +375,8 @@ export function WorkspaceShell({
     <ConversationDraftProvider key={user.username} userKey={user.username}>
       <WorkspaceContext.Provider value={contextValue}>
         <div
-          className={`opshelper-shell${showAttachments ? " opshelper-shell-files" : ""}${showSidebar ? " opshelper-sidebar-open" : ""}${sidebarCollapsed ? " opshelper-sidebar-collapsed" : ""}`}
-          style={{ "--g-side-user": `${sideWidth}px`, "--g-art-user": `${artWidth}px` } as React.CSSProperties}
+          className={`opshelper-shell${showSidebar ? " opshelper-sidebar-open" : ""}${sidebarCollapsed ? " opshelper-sidebar-collapsed" : ""}`}
+          style={{ "--g-side-user": `${sideWidth}px` } as React.CSSProperties}
         >
           <WorkspaceSidebar user={user} onCollapse={() => { setShowSidebar(false); setSidebarCollapsed(true); }} />
           {sidebarCollapsed ? (
@@ -404,9 +392,6 @@ export function WorkspaceShell({
           ) : (
             <ColumnResizer edge="side" range={SIDE_WIDTH} width={sideWidth} label="调整对话列表宽度" onChange={changeSideWidth} />
           )}
-          {showAttachments ? (
-            <ColumnResizer edge="art" range={ART_WIDTH} width={artWidth} label="调整文件列表宽度" onChange={changeArtWidth} />
-          ) : null}
           <button
             className="opshelper-sidebar-scrim"
             type="button"
@@ -421,7 +406,6 @@ export function WorkspaceShell({
 }
 
 const SIDE_WIDTH = { min: 220, max: 420, fallback: 280, key: "opshelper.sideWidth" };
-const ART_WIDTH = { min: 280, max: 560, fallback: 360, key: "opshelper.artWidth" };
 
 function readWidth(key: string, range: { min: number; max: number; fallback: number }) {
   try {
@@ -452,7 +436,7 @@ function ColumnResizer({
   label,
   onChange,
 }: {
-  edge: "side" | "art";
+  edge: "side";
   range: { min: number; max: number; fallback: number; key: string };
   width: number;
   label: string;
@@ -470,8 +454,7 @@ function ColumnResizer({
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!dragging) return;
     const delta = event.clientX - startRef.current.x;
-    // 右栏的左边界向左拖动意味着变宽。
-    onChange(clampWidth(startRef.current.width + (edge === "side" ? delta : -delta), range));
+    onChange(clampWidth(startRef.current.width + delta, range));
   };
   const stop = () => {
     setDragging(false);
@@ -801,7 +784,14 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
             aria-current={pathname.endsWith("/agents") ? "page" : undefined}
             onClick={() => setShowSidebar(false)}
           >
-            <IconAgent />
+            <Image
+              className="opshelper-icon"
+              src={agentDirectoryIcon}
+              alt=""
+              width={16}
+              height={16}
+              aria-hidden="true"
+            />
             <span className="opshelper-shortcut-label">智能体目录</span>
           </Link>
           <Link

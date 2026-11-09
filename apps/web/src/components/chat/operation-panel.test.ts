@@ -83,6 +83,7 @@ test("滚动位置只接受有限非负数，缺键时保持原状态", () => {
 test("展开状态按工具框隔离，新工具框默认折叠", () => {
   let state = createOperationsPanelState();
   assert.equal(panelOpen(state, "turn-a"), false);
+  assert.equal(panelOpen(state, "turn-a", true), true);
   state = rememberPanelOpen(state, "turn-a", true);
   assert.equal(panelOpen(state, "turn-a"), true);
   assert.equal(panelOpen(state, "turn-b"), false);
