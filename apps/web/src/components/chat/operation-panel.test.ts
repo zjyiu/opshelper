@@ -18,6 +18,7 @@ import {
   rememberPanelOpen,
   rememberPanelScroll,
   saveOperationsPanelState,
+  shouldAutoCollapseAfterGeneration,
   serializeOperationsPanelState,
   type StorageLike,
 } from "./operation-panel";
@@ -93,6 +94,14 @@ test("展开状态按工具框隔离，新工具框默认折叠", () => {
   assert.equal(panelOpen(state, "turn-b"), true);
   assert.equal(Object.hasOwn(state.open, "turn-a"), false);
   assert.equal(rememberPanelOpen(state, null, true), state);
+});
+
+test("操作完成或追加下一项时保持展开，只在整轮生成结束时收起", () => {
+  const previous = { turnKey: "turn-a", isGenerating: true };
+  assert.equal(shouldAutoCollapseAfterGeneration(previous, "turn-a", true), false);
+  assert.equal(shouldAutoCollapseAfterGeneration(previous, "turn-b", true), false);
+  assert.equal(shouldAutoCollapseAfterGeneration(previous, "turn-a", false), true);
+  assert.equal(shouldAutoCollapseAfterGeneration(null, "turn-a", false), false);
 });
 
 test("贴在底部和隐藏更早记录的判定", () => {

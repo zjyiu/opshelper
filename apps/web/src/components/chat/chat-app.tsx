@@ -158,7 +158,13 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     ? requestedConversationId !== activeConversationId
     : searchParams.has("new") && activeConversationId !== null;
   const draftKey = conversationDraftKey(activeConversationId, activeAgent?.key ?? null);
-  const { input, attachments, setInput, setAttachments, ready: draftsReady } = useConversationDraft(draftKey);
+  const {
+    input,
+    attachments,
+    setInput,
+    setAttachments,
+    ready: draftsReady,
+  } = useConversationDraft(draftKey);
   const { drafts, setDraft, updateDraft, moveDraft } = useConversationDraftStore();
   const failedDraftPrefix = `${conversationDraftKey(null, activeAgent?.key ?? null)}:failed:`;
   const failedDrafts = Object.entries(drafts).filter(([key]) => key.startsWith(failedDraftPrefix));
@@ -487,7 +493,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   // 只发送当前草稿：首屏示例、未发送草稿恢复都先写回草稿，再走同一条路径。
   const send = useCallback(async () => {
     const text = input;
-    if (!activeAssistant || (!text.trim() && readyAttachments.length === 0)) return;
+    if (!activeAssistant || (!input.trim() && readyAttachments.length === 0)) return;
     if (attachments.some((item) => item.status === "uploading")) return;
     if (!draftsReady || navigating || sendingRef.current || forkingRef.current) return;
     sendingRef.current = true;
@@ -522,7 +528,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         const created = await createConversation({
           leadAgentKey: activeAssistant.id,
           // 有文字时留给服务端：它会按问题内容生成简短标题。
-          title: text.trim() ? undefined : readyAttachments[0]?.filename || "新的对话",
+          title: input.trim() ? undefined : readyAttachments[0]?.filename || "新的对话",
         });
         conversationId = created.conversationId;
         submittedConversationId = conversationId;
@@ -570,10 +576,13 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       updateOptimisticMessages((current) => current.filter((item) => item.clientId !== clientId));
       if (!submittedConversationId) {
         // Creation failed before a conversation existed. The blank key may already own a newer draft.
-        setDraft(`${draftKey}:failed:${clientId}`, { input: text, attachments: readyAttachments });
+        setDraft(`${draftKey}:failed:${clientId}`, {
+          input,
+          attachments: readyAttachments,
+        });
       } else {
         updateDraft(submittedDraftKey, (draft) => ({
-          input: draft.input || text,
+          input: draft.input || input,
           attachments: draft.attachments.length > 0 ? draft.attachments : readyAttachments,
         }));
       }
@@ -682,9 +691,13 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       }));
   }, [directory]);
 
-  const restartFrom = useCallback(async (message: ChatMessage, retryImmediately = false) => {
+  const restartFrom = useCallback(async (
+    message: ChatMessage,
+    retryImmediately = false,
+    replacementText?: string,
+  ): Promise<boolean> => {
     const sourceId = activeConversationRef.current;
-    if (!sourceId || forkingRef.current || sendingRef.current || hasActiveExecution) return;
+    if (!sourceId || forkingRef.current || sendingRef.current || hasActiveExecution) return false;
     forkingRef.current = true;
     setForkingMessageId(message.id);
     setNotice(null);
@@ -693,7 +706,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       const created = await forkConversation(sourceId, message.id, retryImmediately);
       const destinationId = retryImmediately ? sourceId : created.conversationId;
       setDraft(conversationDraftKey(destinationId, created.leadAgentKey), {
-        input: created.text,
+        input: replacementText ?? created.text,
         attachments: created.attachments.map((attachment) => ({
           ...attachment,
           id: createClientId(),
@@ -704,7 +717,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       // A slow fork must not replace a conversation the user opened meanwhile.
       if (activeConversationRef.current !== sourceId || generation !== conversationGenerationRef.current) {
         await refreshHome(undefined, { activate: false });
-        return;
+        return false;
       }
       pendingRequestRef.current = null;
       if (retryImmediately) {
@@ -717,20 +730,22 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         setStreamGeneration((current) => current + 1);
         const refreshed = await refreshConversation(sourceId);
         if (!refreshed || activeConversationRef.current !== sourceId ||
-            generation !== conversationGenerationRef.current) return;
+            generation !== conversationGenerationRef.current) return false;
         setPendingRetry({
           conversationId: sourceId,
           cleanupWarning: created.cleanupWarning,
         });
-        return;
+        return true;
       }
       // Navigate before activating so the old URL cannot reactivate the source.
       router.push(`/chat?conversation=${encodeURIComponent(created.conversationId)}`);
       await refreshHome(created.conversationId);
+      return true;
     } catch (error) {
       if (activeConversationRef.current === sourceId && generation === conversationGenerationRef.current) {
         setNotice(error instanceof Error ? error.message : "创建会话分支失败");
       }
+      return false;
     } finally {
       forkingRef.current = false;
       setForkingMessageId(null);
@@ -740,6 +755,11 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   const retryResponse = useCallback((message: ChatMessage) => {
     void restartFrom(message, true);
   }, [restartFrom]);
+
+  const editAndSend = useCallback(
+    (message: ChatMessage, text: string) => restartFrom(message, true, text),
+    [restartFrom],
+  );
 
   useEffect(() => {
     if (!pendingRetry) return;
@@ -809,6 +829,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             busy={sending || hasActiveExecution || forkingMessageId !== null}
             sessionId={activeConversationId}
             onRestartFrom={restartFrom}
+            onEditAndSend={editAndSend}
             onRetryFrom={retryResponse}
             forkingMessageId={forkingMessageId}
             executions={visibleSnapshot?.executions ?? []}

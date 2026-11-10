@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 # 小信运维助手 opencode runtime image.
 #
 # Headless `opencode2 serve`; only the platform API accesses the container's
@@ -55,6 +53,7 @@ RUN --mount=type=cache,target=/root/.npm \
     --no-audit \
     --no-fund
 COPY pele-render.mjs /usr/local/bin/pele-render
+COPY diagram-theme.mjs /usr/local/bin/diagram-theme.mjs
 RUN chmod 0755 /usr/local/bin/pele-render
 
 RUN mkdir -p /workspace /state /opt/opshelper/config/opencode \

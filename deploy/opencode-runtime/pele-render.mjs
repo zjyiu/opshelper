@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { execSync } from "node:child_process";
+import { applyDiagramTheme } from "./diagram-theme.mjs";
 
 const [input, output] = process.argv.slice(2);
 if (!input || !output) {
@@ -20,7 +21,7 @@ try {
   const { svg } = render(source);
   const target = resolve(output);
   mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, `<?xml version="1.0" encoding="UTF-8"?>\n${svg}\n`);
+  writeFileSync(target, `<?xml version="1.0" encoding="UTF-8"?>\n${applyDiagramTheme(svg)}\n`);
   console.log(target);
 } catch (error) {
   console.error(`渲染失败: ${error instanceof Error ? error.message : error}`);

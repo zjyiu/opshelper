@@ -18,6 +18,7 @@ async function service() {
 
 const CONFIG_FILE = path.join(CONFIG_ROOT, "opencode.json");
 const GLOBAL_INSTRUCTIONS_FILE = path.join(CONFIG_ROOT, "AGENTS.md");
+const PLATFORM_INSTRUCTIONS_FILE = path.join(CONFIG_ROOT, "PLATFORM.md");
 
 async function readConfig(): Promise<Record<string, any>> {
   return JSON.parse(await readFile(CONFIG_FILE, "utf8"));
@@ -216,6 +217,7 @@ test("清空模型组移除 provider.custom 并删掉顶层 model 键", async ()
 test("全局规则原样保存并在空内容时删除", async () => {
   const {
     getGlobalInstructions,
+    getPlatformInstructions,
     updateGlobalInstructions,
   } = await service();
   assert.equal(await getGlobalInstructions(), "");
@@ -226,6 +228,9 @@ test("全局规则原样保存并在空内容时删除", async () => {
   );
   assert.equal(await readFile(GLOBAL_INSTRUCTIONS_FILE, "utf8"), "工作目录是 /workspace。\n");
   assert.equal(await getGlobalInstructions(), "工作目录是 /workspace。\n");
+  const effective = await getPlatformInstructions();
+  assert.match(effective, /# 可视化图表/);
+  assert.match(effective, /工作目录是 \/workspace/);
 
   assert.equal(await updateGlobalInstructions("  \n"), "");
   await assert.rejects(readFile(GLOBAL_INSTRUCTIONS_FILE, "utf8"), { code: "ENOENT" });
@@ -240,6 +245,32 @@ test("全局规则拒绝空字符和超长内容", async () => {
   await assert.rejects(updateGlobalInstructions("a\0b"), AdminConfigError);
   await assert.rejects(
     updateGlobalInstructions("中".repeat(MAX_GLOBAL_INSTRUCTIONS_BYTES)),
+    AdminConfigError,
+  );
+});
+
+test("平台通用规则默认使用内置内容，编辑后保留空内容覆盖", async () => {
+  const { getPlatformInstructions, updatePlatformInstructions } = await service();
+  assert.match(await getPlatformInstructions(), /默认将 `\/workspace` 作为文件操作范围/);
+
+  assert.equal(await updatePlatformInstructions("# 自定义平台规则"), "# 自定义平台规则\n");
+  assert.equal(await readFile(PLATFORM_INSTRUCTIONS_FILE, "utf8"), "# 自定义平台规则\n");
+  assert.equal(await getPlatformInstructions(), "# 自定义平台规则\n");
+
+  assert.equal(await updatePlatformInstructions(""), "");
+  assert.equal(await readFile(PLATFORM_INSTRUCTIONS_FILE, "utf8"), "");
+  assert.equal(await getPlatformInstructions(), "");
+});
+
+test("平台通用规则拒绝空字符和超长内容", async () => {
+  const {
+    AdminConfigError,
+    MAX_PLATFORM_INSTRUCTIONS_BYTES,
+    updatePlatformInstructions,
+  } = await service();
+  await assert.rejects(updatePlatformInstructions("a\0b"), AdminConfigError);
+  await assert.rejects(
+    updatePlatformInstructions("中".repeat(MAX_PLATFORM_INSTRUCTIONS_BYTES)),
     AdminConfigError,
   );
 });

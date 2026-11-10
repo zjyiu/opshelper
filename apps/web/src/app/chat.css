@@ -101,7 +101,7 @@
   display: flex; flex-direction: column;
   background: #E6F4EA;
   border-right: 1px solid var(--g-line);
-  padding: 10px 14px 14px;
+  padding: 10px 14px 14px 5px;
   min-height: 0;
 }
 /* 抽屉（≤640px）才出现的两个元素。 */
@@ -109,7 +109,7 @@
 .opshelper-brand {
   display: flex; align-items: center; gap: 4px;
   justify-content: flex-start;
-  padding: 0 6px 0 10px; height: 40px; margin-bottom: 14px; flex: 0 0 auto;
+  padding: 0 6px 0 10px; height: 40px; margin: 0 -15px 14px 0; flex: 0 0 auto;
 }
 .opshelper-sidebar-collapse, .opshelper-sidebar-expand, .opshelper-search-toggle {
   flex: 0 0 auto; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 10px;
@@ -135,7 +135,9 @@
 }
 
 /* 工作区分区：智能体选择器 → 新建会话 → 快捷入口。 */
-.opshelper-side-group { display: flex; flex-direction: column; gap: 0; margin-bottom: 22px; flex: 0 0 auto; }
+.opshelper-side-group {
+  display: flex; flex-direction: column; gap: 0; margin: 0 -9px 22px 0; flex: 0 0 auto;
+}
 
 /* 对话标题与分组内智能体图标的左边缘对齐。 */
 .opshelper-side-label {
@@ -218,7 +220,7 @@
 .opshelper-search-dialog-bar button:hover { background: var(--g-field); color: var(--g-text); }
 .opshelper-search-dialog-bar button .opshelper-icon { width: 18px; height: 18px; }
 .opshelper-search-dialog-results {
-  max-height: min(52vh, 420px); overflow-y: auto; padding: 6px;
+  max-height: min(86.67vh, 700px); overflow-y: auto; padding: 6px;
   border-radius: 14px; background: #fff; box-shadow: 0 8px 24px rgba(17, 24, 39, 0.16);
 }
 .opshelper-search-result {
@@ -312,7 +314,7 @@
   color: var(--g-muted); transition: background 0.12s, color 0.12s;
 }
 .opshelper-conv:hover { background: var(--g-field); color: var(--g-text); }
-.opshelper-conv.active { background: var(--g-accent-soft); color: var(--g-accent-dark); }
+.opshelper-conv.active { background: var(--g-accent-soft2); color: var(--g-accent-dark); }
 .opshelper-conv.active:hover { background: var(--g-accent-soft-hover); }
 .opshelper-conv-main {
   display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0;
@@ -621,18 +623,45 @@
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.03);
 }
 .opshelper-msg-actions {
-  min-height: 24px; display: flex; justify-content: flex-end; align-items: center; padding-top: 3px;
+  min-height: 30px; display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding-top: 3px;
 }
 .opshelper-msg-action {
-  border: none; background: transparent; color: var(--g-faint); cursor: pointer;
-  padding: 3px 5px; border-radius: 6px; font: inherit; font-size: 12px;
+  display: grid; place-items: center; width: 30px; height: 30px; border: none;
+  background: transparent; color: var(--g-muted); cursor: pointer;
+  padding: 0; border-radius: 8px; font: inherit; font-size: 12px;
   opacity: 0; transition: opacity .12s, color .12s, background .12s;
 }
+.opshelper-msg-action .opshelper-icon { width: 17px; height: 17px; }
 .opshelper-msg-user:hover .opshelper-msg-action,
 .opshelper-msg-action:focus-visible { opacity: 1; }
 .opshelper-msg-action:hover:not(:disabled) { color: var(--g-accent-dark); background: var(--g-accent-soft); }
 .opshelper-msg-action:disabled { cursor: default; color: var(--g-faint); }
 @media (hover: none) { .opshelper-msg-action { opacity: 1; } }
+.opshelper-msg-edit {
+  width: min(78vw, 760px); max-width: calc(100vw - 32px);
+  padding: 12px; border-radius: 22px; background: #f0f0f0;
+  box-sizing: border-box;
+}
+.opshelper-msg-edit textarea {
+  display: block; width: 100%; min-height: 76px; max-height: 40vh; resize: vertical;
+  border: 0; outline: 0; padding: 0; background: transparent; color: var(--g-text);
+  font: inherit; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere;
+}
+.opshelper-shell .opshelper-msg-edit textarea:focus-visible { outline: none; }
+.opshelper-msg-edit textarea:disabled { opacity: 0.7; }
+.opshelper-msg-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.opshelper-msg-edit-actions button {
+  min-width: 54px; min-height: 36px; border: 1px solid var(--g-line-strong);
+  border-radius: 20px; padding: 6px 13px; font: inherit; font-size: 13px;
+  cursor: pointer; transition: background .12s, opacity .12s;
+}
+.opshelper-msg-edit-cancel { background: transparent; color: var(--g-text); }
+.opshelper-msg-edit-cancel:hover:not(:disabled) { background: rgba(255, 255, 255, 0.7); }
+.opshelper-msg-edit-submit {
+  border-color: var(--g-text) !important; background: var(--g-text); color: #fff;
+}
+.opshelper-msg-edit-submit:hover:not(:disabled) { opacity: 0.86; }
+.opshelper-msg-edit-actions button:disabled { cursor: default; opacity: 0.55; }
 .opshelper-msg-attachments { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin-bottom: 6px; max-width: 76%; }
 .opshelper-msg-attachment {
   display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 10px;
@@ -675,10 +704,27 @@
 .opshelper-markdown li { margin: 6px 0; }
 .opshelper-markdown a { color: var(--g-accent-dark); }
 .opshelper-markdown strong { font-weight: 600; color: #1f2933; }
+.opshelper-code-block {
+  margin: 12px 0; overflow: hidden; border: 1px solid #d7d9de;
+  border-radius: 18px; background: #f8f8f8;
+}
+.opshelper-code-header {
+  min-height: 48px; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 0 16px; border-bottom: 1px solid #d5d7dc; color: #1f2937;
+}
+.opshelper-code-language { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 500; }
+.opshelper-code-language > svg { width: 17px; height: 17px; flex: 0 0 auto; }
+.opshelper-code-copy {
+  display: grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 0; border-radius: 7px; background: transparent; color: #1f2937; cursor: pointer;
+}
+.opshelper-code-copy:hover,
+.opshelper-code-copy:focus-visible { background: rgba(31, 41, 55, .08); outline: none; }
+.opshelper-code-copy > svg { width: 19px; height: 19px; }
 .opshelper-markdown pre {
-  background: #0d1714; color: #e6f4ee; padding: 14px 16px; border-radius: 12px;
-  overflow-x: auto; margin: 12px 0; font-size: 13.5px;
-  border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  margin: 0; padding: 14px 18px 18px; overflow-x: auto;
+  border: 0; border-radius: 0; background: transparent; color: #24292f;
+  font-size: 13.5px; box-shadow: none;
 }
 .opshelper-markdown code {
   background: transparent; color: var(--g-accent); font-weight: 600;
@@ -686,19 +732,71 @@
   border: 0;
 }
 .opshelper-markdown pre code {
-  background: transparent; color: inherit; font-weight: 400; padding: 0;
-  font-size: inherit; border: 0;
+  display: block; background: transparent; color: #24292f; font-weight: 400;
+  padding: 0; font-size: inherit; border: 0;
 }
 /* 宽表格在自己的区域内横向滚动（包裹层由 markdown.ts 渲染），不把页面撑宽。 */
 .opshelper-table-scroll { margin: 12px 0; overflow-x: auto; overscroll-behavior-x: contain; }
 .opshelper-table-scroll > table { margin: 0; }
 .opshelper-diagram {
   margin: 12px 0; overflow-x: auto; text-align: center;
-  --pele-bg: transparent; --pele-fg: var(--text); --pele-muted: var(--muted);
-  --pele-line: #6b7280; --pele-surface: #f6f7f9; --pele-surface-alt: #eef0f3;
-  --pele-border: var(--g-line-strong); --pele-accent: var(--accent);
+  --pele-bg: transparent; --pele-fg: #24324a; --pele-muted: #64748b;
+  --pele-line: #8593a8; --pele-surface: #e5f2ff; --pele-surface-alt: #d8f3ed;
+  --pele-border: #8db4d8; --pele-accent: #3978c5;
+  --pele-series-1: #3978c5; --pele-series-2: #11a683;
+  --pele-series-3: #e6a23c; --pele-series-4: #e56b6f;
+  --pele-series-5: #8b70c9; --pele-series-6: #31a6b8;
+  --pele-series-7: #d77ca8; --pele-series-8: #7e9d45;
 }
-.opshelper-markdown img.opshelper-workspace-image { display: block; max-width: 100%; height: auto; margin: 12px 0; background: #fff; border: 1px solid var(--g-line-strong); border-radius: 8px; }
+.opshelper-diagram .pele-node:nth-child(8n + 1) { --_s: #e5f2ff; --_b: #8db4d8; }
+.opshelper-diagram .pele-node:nth-child(8n + 2) { --_s: #dff4ef; --_b: #82c6b3; }
+.opshelper-diagram .pele-node:nth-child(8n + 3) { --_s: #fff1d6; --_b: #e8bd68; }
+.opshelper-diagram .pele-node:nth-child(8n + 4) { --_s: #fde7e5; --_b: #e7a09a; }
+.opshelper-diagram .pele-node:nth-child(8n + 5) { --_s: #eee8fb; --_b: #b2a1dc; }
+.opshelper-diagram .pele-node:nth-child(8n + 6) { --_s: #def2f5; --_b: #81bbc4; }
+.opshelper-diagram .pele-node:nth-child(8n + 7) { --_s: #f9e8f0; --_b: #d8a0b9; }
+.opshelper-diagram .pele-node:nth-child(8n) { --_s: #edf2dc; --_b: #afbd7c; }
+.opshelper-diagram .pele-node.pele-shape-diam { --_s: #fff1d6; --_b: #e8bd68; }
+.opshelper-diagram .pele-edge-label rect {
+  fill: #f4f9ff; stroke: #d6e5f5; stroke-width: 1; rx: 12px;
+}
+.opshelper-diagram .pele-edge-label text { fill: #1760a8; font-weight: 600; }
+.opshelper-markdown img { max-width: 100%; height: auto; cursor: zoom-in; }
+.opshelper-markdown img.opshelper-workspace-image { display: block; margin: 12px 0; background: #fff; border: 1px solid var(--g-line-strong); border-radius: 8px; }
+.opshelper-diagram[role="button"] { cursor: zoom-in; }
+.opshelper-image-preview-backdrop {
+  position: fixed; inset: 0; z-index: 1000; padding: 18px;
+  background: rgba(0, 0, 0, 0.88);
+}
+.opshelper-image-preview {
+  width: 100%; height: 100%; display: flex; flex-direction: column; gap: 8px;
+  outline: none;
+}
+.opshelper-image-preview-toolbar { display: flex; justify-content: flex-end; gap: 8px; }
+.opshelper-image-preview-toolbar button, .opshelper-image-preview-zoom button {
+  display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: 50%; background: #fff; color: #24292f; cursor: pointer;
+}
+.opshelper-image-preview-toolbar button:hover, .opshelper-image-preview-zoom button:hover:not(:disabled) { background: #e7e7e7; }
+.opshelper-image-preview-toolbar button:focus-visible, .opshelper-image-preview-zoom button:focus-visible {
+  outline: 2px solid #fff; outline-offset: 3px;
+}
+.opshelper-image-preview-toolbar .opshelper-icon { width: 18px; height: 18px; }
+.opshelper-image-preview-viewport {
+  flex: 1; min-height: 0; overflow: auto; display: flex;
+  background: #fff; border-radius: 12px;
+}
+.opshelper-image-preview-viewport img {
+  display: block; flex: none; max-width: none; max-height: none; margin: auto;
+}
+.opshelper-image-preview-zoom {
+  align-self: center; display: flex; align-items: center; gap: 8px;
+  padding: 3px; border-radius: 24px; background: #fff; color: #24292f;
+  font-size: 13px;
+}
+.opshelper-image-preview-zoom span { min-width: 42px; text-align: center; }
+.opshelper-image-preview-zoom button { width: 30px; height: 30px; background: #eee; font-size: 20px; }
+.opshelper-image-preview-zoom button:disabled { opacity: 0.45; cursor: default; }
 .opshelper-markdown table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 14px; border-radius: 10px; overflow: hidden; border: 1px solid var(--g-line); }
 .opshelper-markdown th, .opshelper-markdown td { border: 1px solid var(--g-line); padding: 9px 12px; text-align: left; vertical-align: top; }
 .opshelper-markdown th { background: #f8faf9; font-weight: 600; color: var(--g-text); }
@@ -1621,18 +1719,18 @@
   color: var(--g-accent-dark);
 }
 
-/* 会话列表：侧栏唯一的可滚动区。
-   这里隐藏滚动条：Chrome 的经典滚动条会占掉 9px，行宽因此从 255 变成 246，
-   所有行（含时间列）在列表刚开始溢出时整体左移，而“会话数量刚好超一页”是常态。
-   换来的是行宽恒定、与上方控件的右边缘始终对齐；可滚性由底部吸顶的
-   “显示更早”和滚轮/触控板承担。 */
+/* 会话列表独立滚动；滚动条仅在此区域显示。 */
 .opshelper-current-conversations {
   flex: 1 1 auto; min-height: var(--g-control-h);
   display: flex; flex-direction: column; gap: 1px;
   padding-bottom: 6px; overflow-y: auto; overscroll-behavior: contain;
-  scrollbar-width: none;
+  scrollbar-width: thin; scrollbar-color: rgba(100, 116, 139, 0.3) transparent;
 }
-.opshelper-shell .opshelper-current-conversations::-webkit-scrollbar { width: 0; height: 0; }
+.opshelper-shell .opshelper-current-conversations::-webkit-scrollbar { width: 6px; }
+.opshelper-shell .opshelper-current-conversations::-webkit-scrollbar-thumb {
+  border-radius: 8px; background: rgba(100, 116, 139, 0.28);
+}
+.opshelper-shell .opshelper-current-conversations::-webkit-scrollbar-track { background: transparent; }
 /* 滚动容器里的焦点框画在内侧：行宽与容器等宽，outline-offset 为正时左右会被裁掉。
    选择器要盖过 .opshelper-shell button:focus-visible，所以带上外层类名。 */
 .opshelper-shell .opshelper-current-conversations :focus-visible { outline-offset: -2px; }

@@ -52,8 +52,8 @@ export function GlobalInstructionsManager() {
   const save = useCallback(async () => {
     if (!content.trim() && savedContent.trim()) {
       const confirmed = await confirmDialog({
-        title: "清空全局规则？",
-        description: "保存后将移除所有用户运行环境中的全局 AGENTS.md；各智能体自己的 agent.md 不受影响。",
+        title: "清空平台通用规则？",
+        description: "保存后所有用户运行环境将不再加载平台通用规则；各智能体自己的 agent.md 不受影响。",
         confirmLabel: "清空并保存",
         variant: "danger",
       });
@@ -84,7 +84,7 @@ export function GlobalInstructionsManager() {
   return (
     <div className="global-instructions-manager">
       <div className="opshelper-skill-files-hint">
-        这里的规则会应用于所有用户和智能体。
+        平台通用规则会应用于所有用户和智能体。
         保存后，正在执行任务的用户会先完成当前任务，随后系统逐个重建运行环境。
       </div>
       <label className="field global-instructions-field">
@@ -93,7 +93,7 @@ export function GlobalInstructionsManager() {
           className="field-textarea mono global-instructions-editor"
           value={content}
           onChange={(event) => setContent(event.target.value)}
-          placeholder={"# 平台通用规则\n\n- 当前工作目录和用户持久化文件根目录为 /workspace。\n- 如果任务明确指定输出目录，必须优先使用该目录。"}
+          placeholder="# 平台通用规则"
           spellCheck={false}
         />
       </label>

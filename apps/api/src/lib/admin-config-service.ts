@@ -2,13 +2,16 @@ import { randomBytes } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { BUILTIN_INSTRUCTIONS, withBuiltinInstructions } from "./builtin-instructions";
 import { loadConfig } from "./config";
 import { ensureOpencodeConfigDir } from "./file-service";
 
 const config = loadConfig();
 const CONFIG_FILE = "opencode.json";
 const GLOBAL_INSTRUCTIONS_FILE = "AGENTS.md";
+const PLATFORM_INSTRUCTIONS_FILE = "PLATFORM.md";
 export const MAX_GLOBAL_INSTRUCTIONS_BYTES = 100 * 1024;
+export const MAX_PLATFORM_INSTRUCTIONS_BYTES = MAX_GLOBAL_INSTRUCTIONS_BYTES;
 const CUSTOM_PROVIDER_KEY = "custom";
 const CUSTOM_PROVIDER_NPM = "@ai-sdk/openai-compatible";
 const CUSTOM_PROVIDER_NAME = "自定义模型";
@@ -64,6 +67,10 @@ function globalInstructionsFilePath() {
   return path.join(config.opencodeConfigPath, GLOBAL_INSTRUCTIONS_FILE);
 }
 
+function platformInstructionsFilePath() {
+  return path.join(config.opencodeConfigPath, PLATFORM_INSTRUCTIONS_FILE);
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
     ? value as Record<string, unknown>
@@ -114,20 +121,67 @@ export async function getGlobalInstructions() {
   }
 }
 
+function normalizeInstructions(content: string, label: string, maxBytes: number) {
+  if (content.includes("\0")) {
+    throw new AdminConfigError(`${label}不能包含空字符`);
+  }
+  const normalized = content.trim()
+    ? content.endsWith("\n") ? content : `${content}\n`
+    : "";
+  if (Buffer.byteLength(normalized, "utf8") > maxBytes) {
+    throw new AdminConfigError(`${label}不能超过 ${maxBytes / 1024} KiB`);
+  }
+  return normalized;
+}
+
+export function normalizeGlobalInstructionsContent(content: string) {
+  return normalizeInstructions(content, "全局规则", MAX_GLOBAL_INSTRUCTIONS_BYTES);
+}
+
+export function normalizePlatformInstructionsContent(content: string) {
+  return normalizeInstructions(content, "平台通用规则", MAX_PLATFORM_INSTRUCTIONS_BYTES);
+}
+
 export async function updateGlobalInstructions(content: string) {
   await ensureOpencodeConfigDir();
-  if (content.includes("\0")) {
-    throw new AdminConfigError("全局规则不能包含空字符");
-  }
+  const normalized = normalizeGlobalInstructionsContent(content);
   const destination = globalInstructionsFilePath();
-  if (!content.trim()) {
+  if (!normalized) {
     await rm(destination, { force: true });
     return "";
   }
-  const normalized = content.endsWith("\n") ? content : `${content}\n`;
-  if (Buffer.byteLength(normalized, "utf8") > MAX_GLOBAL_INSTRUCTIONS_BYTES) {
-    throw new AdminConfigError(`全局规则不能超过 ${MAX_GLOBAL_INSTRUCTIONS_BYTES / 1024} KiB`);
+  const temporary = `${destination}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    await writeFile(temporary, normalized, "utf8");
+    await rename(temporary, destination);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
   }
+  return normalized;
+}
+
+export async function getPlatformInstructions() {
+  await ensureOpencodeConfigDir();
+  let platformInstructions: string;
+  try {
+    platformInstructions = await readFile(platformInstructionsFilePath(), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      platformInstructions = BUILTIN_INSTRUCTIONS;
+    } else {
+      throw error;
+    }
+  }
+  const legacyInstructions = (await getGlobalInstructions()).trim();
+  if (!legacyInstructions || platformInstructions.includes(legacyInstructions)) return platformInstructions;
+  return withBuiltinInstructions(legacyInstructions, platformInstructions);
+}
+
+export async function updatePlatformInstructions(content: string) {
+  await ensureOpencodeConfigDir();
+  const normalized = normalizePlatformInstructionsContent(content);
+  const destination = platformInstructionsFilePath();
   const temporary = `${destination}.${randomBytes(6).toString("hex")}.tmp`;
   try {
     await writeFile(temporary, normalized, "utf8");

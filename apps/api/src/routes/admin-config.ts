@@ -3,10 +3,12 @@ import { z } from "zod";
 
 import {
   AdminConfigError,
-  getGlobalInstructions,
+  getPlatformInstructions,
   getModelSettings,
-  MAX_GLOBAL_INSTRUCTIONS_BYTES,
+  MAX_PLATFORM_INSTRUCTIONS_BYTES,
+  normalizePlatformInstructionsContent,
   updateGlobalInstructions,
+  updatePlatformInstructions,
   updateModelSettings,
 } from "../lib/admin-config-service";
 import {
@@ -31,7 +33,7 @@ const modelSettingsBodySchema = z.object({
   defaultModel: z.string().max(160).optional().default(""),
 }).strict();
 
-const globalInstructionsBodySchema = z.object({
+const platformInstructionsBodySchema = z.object({
   content: z.string(),
 }).strict();
 
@@ -210,20 +212,26 @@ export async function registerAdminConfigRoutes(app: FastifyInstance) {
   app.get("/v1/admin/opencode/instructions", async (request, reply) => {
     if (!await requireAdmin(request, reply)) return;
     return {
-      content: await getGlobalInstructions(),
-      maxBytes: MAX_GLOBAL_INSTRUCTIONS_BYTES,
+      content: await getPlatformInstructions(),
+      maxBytes: MAX_PLATFORM_INSTRUCTIONS_BYTES,
     };
   });
 
   app.put("/v1/admin/opencode/instructions", async (request, reply) => {
     if (!await requireAdmin(request, reply)) return;
-    const parsed = globalInstructionsBodySchema.safeParse(request.body);
+    const parsed = platformInstructionsBodySchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "请求参数不合法" });
+    try {
+      normalizePlatformInstructionsContent(parsed.data.content);
+    } catch (error) {
+      return handleError(error, reply);
+    }
     const users = await prisma.containerInstance.findMany({ select: { userId: true } });
     const userIds = users.map((entry) => entry.userId);
     try {
       const content = await withUserConfigLocks(userIds, async () => {
-        const updated = await updateGlobalInstructions(parsed.data.content);
+        const updated = await updatePlatformInstructions(parsed.data.content);
+        await updateGlobalInstructions("");
         await prisma.containerInstance.updateMany({
           where: { userId: { in: userIds } },
           data: {
@@ -236,7 +244,11 @@ export async function registerAdminConfigRoutes(app: FastifyInstance) {
         return updated;
       });
       for (const userId of userIds) queueUserRuntimeConfiguration(userId);
-      return { success: true, content, maxBytes: MAX_GLOBAL_INSTRUCTIONS_BYTES };
+      return {
+        success: true,
+        content,
+        maxBytes: MAX_PLATFORM_INSTRUCTIONS_BYTES,
+      };
     } catch (error) {
       return handleError(error, reply);
     }

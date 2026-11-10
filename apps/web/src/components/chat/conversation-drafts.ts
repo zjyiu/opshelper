@@ -9,7 +9,10 @@ export function conversationDraftKey(conversationId: string | null, agentKey: st
 }
 
 export function hasDraft(draft: ConversationDraft | undefined) {
-  return Boolean(draft && (draft.input.length > 0 || draft.attachments.length > 0));
+  return Boolean(draft && (
+    draft.input.length > 0 ||
+    draft.attachments.length > 0
+  ));
 }
 
 export function updateConversationDraft(

@@ -71,5 +71,6 @@ export function useConversationDraft(key: string) {
   const setAttachments = useCallback((value: SetStateAction<Attachment[]>) => {
     updateDraft(key, (draft) => ({ ...draft, attachments: typeof value === "function" ? value(draft.attachments) : value }));
   }, [key, updateDraft]);
-  return { ...(drafts[key] ?? EMPTY_DRAFT), setInput, setAttachments, ready };
+  const draft = drafts[key] ?? EMPTY_DRAFT;
+  return { ...draft, setInput, setAttachments, ready };
 }

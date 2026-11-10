@@ -27,13 +27,33 @@ test("除 br 外的模型 HTML 仍按文本转义", () => {
 test("代码块中的 br 保持代码文本", () => {
   const rendered = renderAssistantMarkdown("```html\n<br>\n```");
 
-  assert.match(rendered, /&lt;br&gt;/);
+  assert.match(rendered, /&lt;/);
+  assert.doesNotMatch(rendered, /<br>/);
+});
+
+test("代码块显示语言标签和可供复制的按钮", () => {
+  const bash = renderAssistantMarkdown("```bash\nnpm install example\n```");
+  assert.match(bash, /class="opshelper-code-block"/);
+  assert.match(bash, /opshelper-code-language[\s\S]*<span>Bash<\/span>/);
+  assert.match(bash, /data-code-copy aria-label="复制代码"/);
+  assert.match(bash, /npm install example/);
+
+  const cpp = renderAssistantMarkdown("```cpp\nstd::cout << \"hello\";\n```");
+  assert.match(cpp, /<span>C\+\+<\/span>/);
+});
+
+test("未标注语言的代码块显示为纯文本", () => {
+  const rendered = renderAssistantMarkdown("```\njust text\n```");
+
+  assert.match(rendered, /<span>纯文本<\/span>/);
+  assert.match(rendered, /just text/);
+  assert.match(renderAssistantMarkdown("    indented code"), /<span>纯文本<\/span>/);
 });
 
 test("mermaid 代码块渲染为 SVG 图表", () => {
   const rendered = renderAssistantMarkdown("```mermaid\nflowchart LR\n  A[开始] --> B[结束]\n```");
 
-  assert.match(rendered, /<div class="opshelper-diagram"><svg/);
+  assert.match(rendered, /<div class="opshelper-diagram" role="button" tabindex="0" aria-label="查看图表"><svg/);
   assert.doesNotMatch(rendered, /<pre>/);
 });
 
@@ -41,16 +61,23 @@ test("无法解析的 mermaid 代码块回退为普通代码块", () => {
   const rendered = renderAssistantMarkdown("```mermaid\nflowchart LR\n  A -->\n```");
 
   assert.match(rendered, /<pre>/);
-  assert.doesNotMatch(rendered, /<svg/);
+  assert.doesNotMatch(rendered, /class="opshelper-diagram"/);
 });
 
 test("工作区图片改写为内联下载地址，且拒绝路径穿越", () => {
   const ok = renderAssistantMarkdown("![流程](/workspace/outputs/a.svg)");
   assert.match(ok, /src="\/v1\/users\/me\/files\/download\?path=%2Fworkspace%2Foutputs%2Fa\.svg&amp;inline=1"/);
   assert.match(ok, /class="opshelper-workspace-image"/);
+  assert.match(ok, /tabindex="0" role="button" aria-label="查看图片"/);
 
   const bad = renderAssistantMarkdown("![x](/workspace/../etc/passwd)");
   assert.doesNotMatch(bad, /files\/download/);
+});
+
+test("外链图片也可通过键盘打开预览", () => {
+  const rendered = renderAssistantMarkdown("![图](https://example.com/image.png)");
+  assert.match(rendered, /src="https:\/\/example\.com\/image\.png"/);
+  assert.match(rendered, /tabindex="0" role="button" aria-label="查看图片"/);
 });
 
 test("中文文件名的工作区图片只编码一次", () => {

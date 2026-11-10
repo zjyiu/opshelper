@@ -8,6 +8,8 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type RefObject,
 } from "react";
 import { toast } from "sonner";
@@ -22,7 +24,8 @@ import {
   partsText,
   safeStringify,
 } from "./format";
-import { IconBranch, IconChevron, IconCopy, IconPaperclip, IconRetry, IconTool } from "./icons";
+import { IconBranch, IconChevron, IconCopy, IconEdit, IconPaperclip, IconRetry, IconTool } from "./icons";
+import { ImagePreview, type PreviewImage } from "./image-preview";
 import { renderAssistantMarkdown } from "./markdown";
 import type { ChatMessage, ChatPart } from "./message-model";
 import type { ConversationSurface } from "./conversation-surface";
@@ -46,6 +49,7 @@ import {
   rememberPanelOpen,
   rememberPanelScroll,
   saveOperationsPanelState,
+  shouldAutoCollapseAfterGeneration,
   type OperationsPanelState,
 } from "./operation-panel";
 import {
@@ -83,6 +87,7 @@ export function Conversation({
   busy,
   sessionId,
   onRestartFrom,
+  onEditAndSend,
   onRetryFrom,
   forkingMessageId,
   executions,
@@ -97,6 +102,7 @@ export function Conversation({
   busy: boolean;
   sessionId: string | null;
   onRestartFrom: (message: ChatMessage) => void;
+  onEditAndSend: (message: ChatMessage, text: string) => Promise<boolean>;
   onRetryFrom?: (message: ChatMessage) => void;
   forkingMessageId: string | null;
   executions: ExecutionSummary[];
@@ -106,6 +112,8 @@ export function Conversation({
   const conversationRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const latestReplyRef = useRef<HTMLDivElement>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [editingMessage, setEditingMessage] = useState<{ id: string; text: string } | null>(null);
   const shouldFollowOutput = useRef(true);
   const latestReplyIdRef = useRef<string | null>(null);
   const settledSessionId = useRef<string | null>(null);
@@ -184,6 +192,25 @@ export function Conversation({
         : "正在处理…";
   const showActivity = busy && activeExecution?.status !== "waiting_input" && !latestReply;
 
+  useEffect(() => {
+    if (!editingMessage) return;
+    editTextareaRef.current?.focus();
+    editTextareaRef.current?.setSelectionRange(
+      editTextareaRef.current.value.length,
+      editTextareaRef.current.value.length,
+    );
+  }, [editingMessage?.id]);
+
+  const copyUserMessage = async (message: ChatMessage) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("当前浏览器不支持复制");
+      await navigator.clipboard.writeText(partsText(message.parts));
+      toast.success("消息已复制");
+    } catch (error) {
+      toast.error(error instanceof Error ? `复制失败：${error.message}` : "复制失败");
+    }
+  };
+
   return (
     <div
       ref={conversationRef}
@@ -226,20 +253,78 @@ export function Conversation({
                 ))}
               </div>
             ) : null}
-            {partsText(message.parts).trim() ? (
-              <div className="opshelper-bubble">{partsText(message.parts)}</div>
-            ) : null}
-            {!readOnly ? <div className="opshelper-msg-actions">
-              <button
-                type="button"
-                className="opshelper-msg-action"
-                onClick={() => onRestartFrom(message)}
-                disabled={busy || forkingMessageId !== null}
-                title="保留此前的对话，重新编辑这条消息；原对话保留，工作区文件不会回退"
-              >
-                {forkingMessageId === message.id ? "创建中…" : "从这里重新开始"}
-              </button>
-            </div> : null}
+            {editingMessage?.id === message.id ? (
+              <div className="opshelper-msg-edit">
+                <textarea
+                  ref={editTextareaRef}
+                  aria-label="编辑消息"
+                  value={editingMessage.text}
+                  disabled={forkingMessageId !== null}
+                  onChange={(event) => setEditingMessage({ id: message.id, text: event.target.value })}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && forkingMessageId === null) setEditingMessage(null);
+                    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                      event.preventDefault();
+                      if (editingMessage.text.trim() || fileAttachments(message.parts).length > 0) {
+                        void onEditAndSend(message, editingMessage.text).then((started) => {
+                          if (started) setEditingMessage(null);
+                        });
+                      }
+                    }
+                  }}
+                />
+                <div className="opshelper-msg-edit-actions">
+                  <button
+                    type="button"
+                    className="opshelper-msg-edit-cancel"
+                    onClick={() => setEditingMessage(null)}
+                    disabled={forkingMessageId !== null}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="opshelper-msg-edit-submit"
+                    onClick={() => {
+                      void onEditAndSend(message, editingMessage.text).then((started) => {
+                        if (started) setEditingMessage(null);
+                      });
+                    }}
+                    disabled={busy || forkingMessageId !== null ||
+                      (!editingMessage.text.trim() && fileAttachments(message.parts).length === 0)}
+                  >
+                    {forkingMessageId === message.id ? "正在处理…" : "发送"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {partsText(message.parts).trim() ? (
+                  <div className="opshelper-bubble">{partsText(message.parts)}</div>
+                ) : null}
+                {!readOnly ? <div className="opshelper-msg-actions">
+                  <button
+                    type="button"
+                    className="opshelper-msg-action"
+                    onClick={() => void copyUserMessage(message)}
+                    title="复制消息"
+                    aria-label="复制消息"
+                  >
+                    <IconCopy />
+                  </button>
+                  <button
+                    type="button"
+                    className="opshelper-msg-action"
+                    onClick={() => setEditingMessage({ id: message.id, text: partsText(message.parts) })}
+                    disabled={busy || forkingMessageId !== null}
+                    title="编辑消息"
+                    aria-label="编辑消息"
+                  >
+                    <IconEdit />
+                  </button>
+                </div> : null}
+              </>
+            )}
           </div>
         ) : (
           <AssistantTurn
@@ -343,10 +428,14 @@ const AssistantTurn = memo(function AssistantTurn({
       {/* 角色标识留在正文之外：回答本身不再套卡片，识别只靠这一列图标。 */}
       <AgentMark id={agentKey} name={agentName} description={agentDescription} />
       <div className="opshelper-assistant-body">
-        {visibleParts.map((part) => <PartView key={part.id} part={part} />)}
         {operations.length > 0 ? (
-          <OperationDisclosure operations={operations} onInspect={onInspectOperations} />
+          <OperationDisclosure
+            operations={operations}
+            isGenerating={busy}
+            onInspect={onInspectOperations}
+          />
         ) : null}
+        {visibleParts.map((part) => <PartView key={part.id} part={part} />)}
         {errors.map((error) => (
           <div className="opshelper-msg-error" role="alert" key={error}>
             本轮回复失败：{error}
@@ -418,12 +507,59 @@ function StreamingIndicator() {
 }
 
 const PartView = memo(function PartView({ part }: { part: ChatPart }) {
+  const [preview, setPreview] = useState<PreviewImage | null>(null);
+  const closePreview = useCallback(() => setPreview(null), []);
   if (!part.text.trim()) return null;
+  function openPreview(target: EventTarget | null) {
+    if (!(target instanceof Element)) return false;
+    const image = target.closest<HTMLImageElement>(".opshelper-markdown img");
+    if (image) {
+      setPreview({ kind: "image", src: image.currentSrc || image.src, alt: image.alt });
+      return true;
+    }
+    const diagram = target.closest<HTMLElement>(".opshelper-diagram");
+    const svg = diagram?.querySelector("svg");
+    if (!svg) return false;
+    setPreview({ kind: "svg", svg: new XMLSerializer().serializeToString(svg) });
+    return true;
+  }
+  function onKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if ((event.key === "Enter" || event.key === " ") && openPreview(event.target)) {
+      event.preventDefault();
+    }
+  }
+  async function copyCode(event: ReactMouseEvent<HTMLDivElement>) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (openPreview(target)) {
+      event.preventDefault();
+      return;
+    }
+    const button = target.closest<HTMLButtonElement>("[data-code-copy]");
+    if (!button) return;
+    const code = button.closest(".opshelper-code-block")?.querySelector("pre code")?.textContent;
+    if (code === undefined || code === null) {
+      toast.error("未找到代码内容");
+      return;
+    }
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("当前浏览器不支持复制");
+      await navigator.clipboard.writeText(code);
+      toast.success("代码已复制");
+    } catch (error) {
+      toast.error(error instanceof Error ? `复制失败：${error.message}` : "复制失败");
+    }
+  }
   return (
-    <div
-      className="opshelper-markdown"
-      dangerouslySetInnerHTML={{ __html: renderAssistantMarkdown(part.text) }}
-    />
+    <>
+      <div
+        className="opshelper-markdown"
+        onClick={(event) => void copyCode(event)}
+        onKeyDown={onKeyDown}
+        dangerouslySetInnerHTML={{ __html: renderAssistantMarkdown(part.text) }}
+      />
+      {preview ? <ImagePreview image={preview} onClose={closePreview} /> : null}
+    </>
   );
 });
 
@@ -439,14 +575,14 @@ function formatDuration(durationMs: number | null) {
 
 function OperationDisclosure({
   operations,
+  isGenerating,
   onInspect,
 }: {
   operations: ToolOperation[];
+  isGenerating: boolean;
   onInspect?: () => void;
 }) {
   const turnKey = operationsTurnKey(operations);
-  const isExecuting = operations.some((operation) =>
-    operation.status === "pending" || operation.status === "running");
   const [open, setOpen] = useState(false);
   const [showEarlier, setShowEarlier] = useState(false);
   const [pending, setPending] = useState(0);
@@ -454,7 +590,7 @@ function OperationDisclosure({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // 展开状态和滚动位置都按 turnKey 隔离：只影响用户点过的这个工具框。
   const panelRef = useRef<OperationsPanelState>(createOperationsPanelState());
-  const previousExecutionRef = useRef<{ turnKey: string | null; isExecuting: boolean } | null>(null);
+  const previousGenerationRef = useRef<{ turnKey: string | null; isGenerating: boolean } | null>(null);
   const mountedRef = useRef<HTMLDivElement | null>(null);
   const pinnedRef = useRef(true);
   const seenRef = useRef(operations.length);
@@ -483,19 +619,22 @@ function OperationDisclosure({
     }, 200);
   };
 
-  // 执行中的操作默认展开；转为完成后自动收起。已完成的历史记录恢复用户手动展开状态。
+  // 对话生成期间保持默认展开；只有整轮生成结束时自动收起。
   useLayoutEffect(() => {
     let stored = loadOperationsPanelState(chatStorage());
-    const previous = previousExecutionRef.current;
-    const justCompleted = previous?.turnKey === turnKey && previous.isExecuting && !isExecuting;
+    const justCompleted = shouldAutoCollapseAfterGeneration(
+      previousGenerationRef.current,
+      turnKey,
+      isGenerating,
+    );
     if (justCompleted) {
       stored = rememberPanelOpen(stored, turnKey, false);
       saveOperationsPanelState(chatStorage(), stored);
     }
     panelRef.current = stored;
-    setOpen(justCompleted ? false : panelOpen(stored, turnKey, isExecuting));
-    previousExecutionRef.current = { turnKey, isExecuting };
-  }, [isExecuting, turnKey]);
+    setOpen(justCompleted ? false : panelOpen(stored, turnKey, isGenerating));
+    previousGenerationRef.current = { turnKey, isGenerating };
+  }, [isGenerating, turnKey]);
 
   useLayoutEffect(() => {
     if (!open) return;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { withBuiltinInstructions } from "./builtin-instructions";
+import { BUILTIN_INSTRUCTIONS, withBuiltinInstructions } from "./builtin-instructions";
 import test from "node:test";
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -66,7 +66,7 @@ test("装配只包含获配智能体，同一内容复用代次，重建保留�
         provider: {},
         configuredModels: ["fixture/model"],
       }),
-      globalInstructions: async () => "所有交付文件必须保存在 /workspace。\n",
+      platformInstructions: async () => withBuiltinInstructions("所有交付文件必须保存在 /workspace。\n"),
     };
 
     const first = await prepareManagedRuntime("alice", config, services);
@@ -84,9 +84,17 @@ test("装配只包含获配智能体，同一内容复用代次，重建保留�
     const parsed = JSON.parse(await readFile(path.join(release, "config", "opencode", "opencode.json"), "utf8"));
     assert.equal(
       await readFile(path.join(release, "config", "opencode", "AGENTS.md"), "utf8"),
-      withBuiltinInstructions("所有交付文件必须保存在 /workspace。\n"),
+      withBuiltinInstructions("所有交付文件必须保存在 /workspace。\n", BUILTIN_INSTRUCTIONS),
     );
     assert.match(await readFile(path.join(release, "config", "opencode", "AGENTS.md"), "utf8"), /pele-render/);
+    assert.match(
+      await readFile(path.join(release, "config", "opencode", "AGENTS.md"), "utf8"),
+      /默认将 `\/workspace` 作为文件操作范围/,
+    );
+    assert.match(
+      await readFile(path.join(release, "config", "opencode", "AGENTS.md"), "utf8"),
+      /`\/tmp` 专用于.*无需向用户询问许可/,
+    );
     assert.equal(parsed.small_model, parsed.model);
     assert.equal(parsed.experimental.subagent_depth, 24);
     assert.equal(parsed.experimental.continue_loop_on_deny, undefined);
@@ -97,6 +105,11 @@ test("装配只包含获配智能体，同一内容复用代次，重建保留�
     assert.equal(parsed.agent.system.tools.execute, true);
     assert.equal(parsed.agent.network.permission.task.system, "allow");
     assert.equal(parsed.agent.network.permission.task.network, undefined);
+    assert.deepEqual(parsed.agent.network.permission.external_directory, {
+      "*": "ask",
+      "/tmp": "allow",
+      "/tmp/**": "allow",
+    });
     assert.equal(parsed.agent.network.permission.skill["network-diagnose"], "allow");
     assert.equal(parsed.agent.system.permission.skill["network-diagnose"], undefined);
     assert.equal(parsed.mcp.servers["network-observer"].url, "https://mcp.example.com/mcp");
@@ -125,9 +138,23 @@ test("装配只包含获配智能体，同一内容复用代次，重建保留�
     assert.deepEqual(changedModels.configuredModels, ["fixture/model", "fixture/second"]);
     const changedInstructions = await prepareManagedRuntime("alice", config, {
       ...services,
-      globalInstructions: async () => "优先使用任务指定的输出目录。\n",
+      platformInstructions: async () => "# 可编辑的平台规则\n",
     });
     assert.notEqual(changedInstructions.generation, first.generation);
+    assert.equal(
+      await readFile(path.join(
+        root,
+        "users",
+        "alice",
+        "managed",
+        "releases",
+        changedInstructions.generation,
+        "config",
+        "opencode",
+        "AGENTS.md",
+      ), "utf8"),
+      "# 可编辑的平台规则\n",
+    );
     const changedAgentServices: ManagedRuntimeServices = {
       ...services,
       assignedRuntime: async (userId) => {

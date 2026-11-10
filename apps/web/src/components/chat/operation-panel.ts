@@ -94,6 +94,17 @@ export function panelOpen(
   return turnKey ? state.open[turnKey] ?? defaultOpen : false;
 }
 
+export function shouldAutoCollapseAfterGeneration(
+  previous: { turnKey: string | null; isGenerating: boolean } | null,
+  turnKey: string | null,
+  isGenerating: boolean,
+) {
+  return previous !== null &&
+    previous.turnKey === turnKey &&
+    previous.isGenerating &&
+    !isGenerating;
+}
+
 export function rememberPanelOpen(
   state: OperationsPanelState,
   turnKey: string | null,

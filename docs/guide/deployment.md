@@ -6,16 +6,15 @@ x86 离线物理机部署请使用[离线部署文档](offline-amd64.md)和发�
 
 ## 从空目录安装
 
-前提：Docker Engine 或本机兼容运行时、Docker Compose v2、Python 3.9+、Bash。执行安装的用户需要访问 Docker socket。业务目录使用该用户 UID/GID；跨机器恢复时保留相同 UID/GID。
+前提：Docker Engine 或本机兼容运行时、Docker Buildx（带 BuildKit）、Docker Compose v2、Python 3.9+、Bash。执行安装的用户需要访问 Docker socket。业务目录使用该用户 UID/GID；跨机器恢复时保留相同 UID/GID。
 
 在仓库根目录构建镜像：
 
 ```bash
-docker build --target api -t opshelper-api:local .
-docker build --target worker -t opshelper-worker:local .
-docker build --target web -t opshelper-web:local .
-docker build -t opshelper/opencode-runtime:2.0.27 deploy/opencode-runtime
+docker buildx bake -f docker-bake.hcl --load
 ```
+
+四个目标共用一次构建，复用 Node 基础镜像解析和公共构建阶段；首次解析仍可能访问镜像仓库。只需构建单个镜像时，在命令末尾指定 `api`、`worker`、`web` 或 `runtime`。显式指定配置文件可避免 Bake 同时读取部署用 Compose 配置。
 
 源码部署若复用已加载的镜像，须先将 `.env` 中各镜像变量设为实际标签，并跳过构建。离线发布约定见[离线部署文档](offline-amd64.md)。
 

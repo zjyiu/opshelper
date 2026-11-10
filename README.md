@@ -76,11 +76,10 @@ flowchart LR
 **1. 构建镜像**
 
 ```bash
-docker build --target api -t opshelper-api:local .
-docker build --target worker -t opshelper-worker:local .
-docker build --target web -t opshelper-web:local .
-docker build -t opshelper/opencode-runtime:2.0.27 deploy/opencode-runtime
+docker buildx bake -f docker-bake.hcl --load
 ```
+
+四个镜像在同一次构建中解析共享的 Node 基础镜像；首次解析仍可能需要访问镜像仓库。单独构建时可在命令末尾指定 `api`、`worker`、`web` 或 `runtime`。
 
 **2. 生成部署配置**
 

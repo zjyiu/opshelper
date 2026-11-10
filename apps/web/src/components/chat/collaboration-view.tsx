@@ -64,6 +64,7 @@ export function CollaborationView({ conversationId, traceId }: { conversationId:
           busy={child.status === "running"}
           sessionId={traceId}
           onRestartFrom={() => {}}
+          onEditAndSend={async () => false}
           forkingMessageId={null}
           executions={[]}
           reconnecting={Boolean(error)}

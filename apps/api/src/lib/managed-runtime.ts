@@ -3,10 +3,9 @@ import { chmod, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } fro
 import path from "node:path";
 import { z } from "zod";
 
-import { withBuiltinInstructions } from "./builtin-instructions";
 import { getAssignedRuntimeDefinition, type AssignedRuntimeDefinition } from "./agent-service";
 import {
-  getGlobalInstructions,
+  getPlatformInstructions,
   getRuntimeModelConfiguration,
   type RuntimeModelConfiguration,
 } from "./admin-config-service";
@@ -49,13 +48,13 @@ export interface ManagedRuntime {
 export interface ManagedRuntimeServices {
   assignedRuntime: (userId: string) => Promise<AssignedRuntimeDefinition>;
   modelConfiguration: () => Promise<RuntimeModelConfiguration>;
-  globalInstructions: () => Promise<string>;
+  platformInstructions: () => Promise<string>;
 }
 
 const defaultServices: ManagedRuntimeServices = {
   assignedRuntime: getAssignedRuntimeDefinition,
   modelConfiguration: getRuntimeModelConfiguration,
-  globalInstructions: getGlobalInstructions,
+  platformInstructions: getPlatformInstructions,
 };
 
 // Managed sources must be ordinary files/directories. Never follow a symlink
@@ -117,10 +116,10 @@ export async function prepareManagedRuntime(
   services: ManagedRuntimeServices = defaultServices,
 ): Promise<ManagedRuntime> {
   assertSafeUserId(userId);
-  const [definition, modelConfiguration, globalInstructions] = await Promise.all([
+  const [definition, modelConfiguration, instructions] = await Promise.all([
     services.assignedRuntime(userId),
     services.modelConfiguration(),
-    services.globalInstructions().then(withBuiltinInstructions),
+    services.platformInstructions(),
   ]);
   if (!definition.agents.length) throw new RuntimeNotConfiguredError();
   const agentKeys = definition.agents.map((agent) => agent.key).sort();
@@ -139,7 +138,7 @@ export async function prepareManagedRuntime(
   }
   const user = getUserPaths(userId, config);
   const digest = createHash("sha256").update(JSON.stringify({
-    version: 12,
+    version: 13,
     desiredGeneration: definition.desiredGeneration,
     agents: definition.agents.map((agent) => ({
       key: agent.key,
@@ -154,7 +153,7 @@ export async function prepareManagedRuntime(
     model: modelConfiguration.model,
     configuredModels: modelConfiguration.configuredModels,
     provider: modelConfiguration.provider,
-    globalInstructions,
+    instructions,
   }));
   const prompts: Record<string, string> = {};
   for (const definitionAgent of definition.agents) {
@@ -206,7 +205,7 @@ export async function prepareManagedRuntime(
     });
     const cachedAgents = (await readdir(path.join(destination, "agents"))).sort();
     if (!configuration.isFile() || configuration.isSymbolicLink() ||
-      cachedInstructions !== (globalInstructions.trim() ? globalInstructions : null) ||
+      cachedInstructions !== (instructions.trim() ? instructions : null) ||
       cached.model !== runtime.model || cached.desiredGeneration !== runtime.desiredGeneration ||
       JSON.stringify(cached.agentKeys) !== JSON.stringify(agentKeys) ||
       JSON.stringify(cached.taskAgentKeys) !== JSON.stringify(taskAgentKeys) ||
@@ -265,7 +264,11 @@ export async function prepareManagedRuntime(
         prompt: prompts[key],
         ...(definitionAgent.model ? { model: definitionAgent.model } : {}),
         ...(Object.keys(tools).length ? { tools } : {}),
-        permission: { external_directory: "ask", task, skill: skillPermission },
+        permission: {
+          external_directory: { "*": "ask", "/tmp": "allow", "/tmp/**": "allow" },
+          task,
+          skill: skillPermission,
+        },
       };
       const source = definitionAgent.sourceDir;
       await cp(source, path.join(staging, "agents", key), { recursive: true, dereference: false });
@@ -293,8 +296,8 @@ export async function prepareManagedRuntime(
       agent,
     };
     await writeFile(path.join(staging, "config", "opencode", "opencode.json"), JSON.stringify(opencode, null, 2));
-    if (globalInstructions.trim()) {
-      await writeFile(path.join(staging, "config", "opencode", "AGENTS.md"), globalInstructions);
+    if (instructions.trim()) {
+      await writeFile(path.join(staging, "config", "opencode", "AGENTS.md"), instructions);
     }
     await writeFile(path.join(staging, "config", "opencode", ".gitignore"), "node_modules\npackage.json\nbun.lock\n");
     await writeFile(path.join(staging, "manifest.json"), JSON.stringify({
