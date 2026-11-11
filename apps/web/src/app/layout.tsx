@@ -23,8 +23,8 @@ export const metadata: Metadata = {
   title: "小信运维助手",
   description: "小信运维助手 opencode 智能助理网关。",
   icons: {
-    icon: "/brand/xiaoxin-ops-logo.webp",
-    apple: "/brand/xiaoxin-ops-logo.webp",
+    icon: "/gateway/brand/xiaoxin-ops-logo.webp?v=3",
+    apple: "/gateway/brand/xiaoxin-ops-logo.webp?v=3",
   },
 };
 

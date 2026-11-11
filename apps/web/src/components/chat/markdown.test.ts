@@ -74,6 +74,14 @@ test("工作区图片改写为内联下载地址，且拒绝路径穿越", () =>
   assert.doesNotMatch(bad, /files\/download/);
 });
 
+test("工作区文件链接改写为下载地址，且拒绝路径穿越", () => {
+  const ok = renderAssistantMarkdown("[下载报告](/workspace/outputs/report.docx)");
+  assert.match(ok, /href="\/v1\/users\/me\/files\/download\?path=%2Fworkspace%2Foutputs%2Freport\.docx"/);
+
+  const bad = renderAssistantMarkdown("[下载文件](/workspace/../etc/passwd)");
+  assert.doesNotMatch(bad, /files\/download/);
+});
+
 test("外链图片也可通过键盘打开预览", () => {
   const rendered = renderAssistantMarkdown("![图](https://example.com/image.png)");
   assert.match(rendered, /src="https:\/\/example\.com\/image\.png"/);
@@ -88,6 +96,15 @@ test("中文文件名的工作区图片只编码一次", () => {
   assert.doesNotMatch(rendered, /%25E5/);
 });
 
+test("中文文件名的工作区下载链接只编码一次", () => {
+  const rendered = renderAssistantMarkdown("[下载模板](/workspace/outputs/自我介绍模板.docx)");
+  const expected = encodeURIComponent("/workspace/outputs/自我介绍模板.docx");
+
+  assert.ok(rendered.includes(`download?path=${expected}"`));
+  assert.doesNotMatch(rendered, /%25E5/);
+});
+
 test("编码形式的路径穿越同样被拒绝", () => {
   assert.doesNotMatch(renderAssistantMarkdown("![x](/workspace/%2e%2e/etc/passwd)"), /files\/download/);
+  assert.doesNotMatch(renderAssistantMarkdown("[x](/workspace/%2e%2e/etc/passwd)"), /files\/download/);
 });

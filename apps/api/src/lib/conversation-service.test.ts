@@ -211,6 +211,7 @@ test("归档的对话仍可按 id 读取：归档只影响会话列表", () => {
 test("普通说明性对话要求直接简洁回答，定时任务不追加该约束", () => {
   assert.match(executionInteractionGuidance(ExecutionSource.CHAT), /不要先检查工作区/);
   assert.match(executionInteractionGuidance(ExecutionSource.CHAT), /3 至 6 个要点/);
+  assert.match(executionInteractionGuidance(ExecutionSource.CHAT), /每个交付文件附上 Markdown 下载链接/);
   assert.equal(executionInteractionGuidance(ExecutionSource.SCHEDULED), "");
 });
 

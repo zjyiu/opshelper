@@ -647,7 +647,7 @@
   border: 0; outline: 0; padding: 0; background: transparent; color: var(--g-text);
   font: inherit; font-size: 15px; line-height: 1.6; overflow-wrap: anywhere;
 }
-.opshelper-shell .opshelper-msg-edit textarea:focus-visible { outline: none; }
+.opshelper-shell .opshelper-msg-edit textarea:focus-visible { outline: none; box-shadow: none; }
 .opshelper-msg-edit textarea:disabled { opacity: 0.7; }
 .opshelper-msg-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .opshelper-msg-edit-actions button {

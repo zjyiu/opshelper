@@ -116,6 +116,24 @@ const FILES_API = "/v1/users/me/files";
 const defaultImageRule =
   markdown.renderer.rules.image ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+const defaultLinkRule =
+  markdown.renderer.rules.link_open ??
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+
+// 工作区文件链接改写为带登录态的下载地址；外部链接保持原样。
+markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const token = tokens[idx];
+  let href = token.attrGet("href") ?? "";
+  try {
+    href = decodeURIComponent(href);
+  } catch {
+    return defaultLinkRule(tokens, idx, options, env, self);
+  }
+  if (/^\/workspace\/[^?#]+$/.test(href) && !href.split("/").includes("..")) {
+    token.attrSet("href", `${FILES_API}/download?path=${encodeURIComponent(href)}`);
+  }
+  return defaultLinkRule(tokens, idx, options, env, self);
+};
 
 markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];

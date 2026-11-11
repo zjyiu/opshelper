@@ -150,7 +150,7 @@ export function resolveExecutionPromptText(
 
 export function executionInteractionGuidance(source: ExecutionSource) {
   if (source !== ExecutionSource.CHAT) return "";
-  return "平台交互要求：需要保存生成的文件或目录时，一律写入 /workspace/outputs/ 下（可自行创建子目录），不要直接写在 /workspace 根目录；用户上传的文件位于 /workspace/chat-uploads/。只有完成当前请求确实需要读取环境或执行操作时才调用工具；身份、能力和使用方式等说明性问题不要先检查工作区，请直接回答，优先控制在 3 至 6 个要点，避免重复自我介绍。平台会根据真实运行事件展示操作记录；被问及工具或技能使用情况时不得凭记忆补造未发生的调用，可提示用户查看操作记录。委派子智能体时准确保留用户原意；向智能体发送问候表示让该智能体接收并回复问候，不得擅自改写为 HTTP 请求或向外部服务发送消息。";
+  return "平台交互要求：需要保存生成的文件或目录时，一律写入 /workspace/outputs/ 下（可自行创建子目录），不要直接写在 /workspace 根目录；用户上传的文件位于 /workspace/chat-uploads/。生成或修改文件后，必须在回答中为每个交付文件附上 Markdown 下载链接，例如 [下载报告](/workspace/outputs/report.docx)，不要只报告保存路径；图片也可用 Markdown 图片语法展示。只有完成当前请求确实需要读取环境或执行操作时才调用工具；身份、能力和使用方式等说明性问题不要先检查工作区，请直接回答，优先控制在 3 至 6 个要点，避免重复自我介绍。平台会根据真实运行事件展示操作记录；被问及工具或技能使用情况时不得凭记忆补造未发生的调用，可提示用户查看操作记录。委派子智能体时准确保留用户原意；向智能体发送问候表示让该智能体接收并回复问候，不得擅自改写为 HTTP 请求或向外部服务发送消息。";
 }
 
 function textOfParts(parts: unknown): string {
