@@ -727,7 +727,7 @@
   font-size: 13.5px; box-shadow: none;
 }
 .opshelper-markdown code {
-  background: transparent; color: var(--g-accent); font-weight: 600;
+  background: transparent; color: var(--g-accent); font-weight: 400;
   padding: 0; border-radius: 0; font-size: 13.5px; font-family: var(--g-mono);
   border: 0;
 }
