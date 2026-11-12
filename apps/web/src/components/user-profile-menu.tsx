@@ -11,6 +11,7 @@ import { AdminAccountSettings } from "./admin-account-settings";
 import { ContainerActions, startActionState, stopActionState } from "./container-actions";
 import { IconClose, IconContainer, IconSliders } from "./chat/icons";
 import { StatusPill } from "./status-pill";
+import { ThemeToggle } from "./theme-toggle";
 import { UserProfileName } from "./user-profile-name";
 
 type ProfileUser = {
@@ -171,6 +172,7 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
             <IconSliders />
             <span>账户信息</span>
           </button>
+          <ThemeToggle />
           <button className="opshelper-user-menu-logout" type="button" role="menuitem" onClick={() => void requestLogout()}>
             <span>退出登录</span>
           </button>

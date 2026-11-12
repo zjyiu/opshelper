@@ -1,31 +1,11 @@
 /* 小信运维助手工作台与管理控制台共享的 Soft UI 视觉系统。 */
 .opshelper-shell {
-  --g-accent: #00A651;
-  --g-accent-dark: #00843D;
-  --g-accent-soft: #E6F4EA;
-  --g-accent-soft2: #D5EBDD;
-  --g-accent-line: #A9D6B6;
-  --g-bg: #ffffff;
-  --g-canvas: #f8fafc;
-  --g-line: #edf0f7;
-  --g-line-strong: #e2e8f0;
-  --g-text: #1f2937;
-  --g-muted: #64748b;
-  --g-faint: #64748b;
-  --g-field: #f1f5f9;
-  /* 装饰性图标灰：比正文灰浅一档。图标不是文字，退到背景里，让标题和数值成为前景。 */
-  --g-icon: #98a0aa;
-  /* 归档/删除等破坏性动作。与 .opshelper-page-body 的 --danger 同值，避免出现第二种红。 */
-  --g-danger: #b3423a;
-  --g-danger-soft: #fdecec;
-  /* 选中态 hover：--g-accent-soft 提亮一档，否则 hover 前后几乎同色。 */
-  --g-accent-soft-hover: #D5EBDD;
   /* 侧栏行高：所有可点元素共用同一个高度，抽屉断点下放大到 44px。 */
   --g-control-h: 40px;
   --g-side-default: 280px;
   --g-radius: 16px;
-  --g-shadow: 0 16px 36px rgba(0, 166, 81, 0.1);
-  --g-shadow-sm: 0 8px 20px rgba(0, 166, 81, 0.08);
+  --g-shadow: 0 16px 36px color-mix(in srgb, var(--g-accent) 10%, transparent);
+  --g-shadow-sm: 0 8px 20px color-mix(in srgb, var(--g-accent) 8%, transparent);
   --g-side-w: var(--g-side-user, var(--g-side-default));
   --g-op-viewport: 292px;       /* 操作记录明细区的固定高度，约 4 行 */
   /* 阅读列：正文、输入区、提示与授权卡片共用宽度上限，大屏时同步加宽。 */
@@ -35,11 +15,11 @@
      它是比例字体（且只含拉丁），拿来做代码会渲染成非等宽，所以另立一个 token。 */
   --g-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* 统一的分层阴影设计令牌 */
-  --g-shadow-xs: 0 2px 8px rgba(0, 166, 81, 0.06);
-  --g-shadow-md: 0 10px 24px rgba(0, 166, 81, 0.1);
-  --g-shadow-lg: 0 16px 32px rgba(0, 166, 81, 0.12);
-  --g-shadow-card: 0 8px 20px rgba(0, 166, 81, 0.08);
-  --g-shadow-card-hover: 0 18px 36px rgba(0, 166, 81, 0.16);
+  --g-shadow-xs: 0 2px 8px color-mix(in srgb, var(--g-accent) 6%, transparent);
+  --g-shadow-md: 0 10px 24px color-mix(in srgb, var(--g-accent) 10%, transparent);
+  --g-shadow-lg: 0 16px 32px color-mix(in srgb, var(--g-accent) 12%, transparent);
+  --g-shadow-card: 0 8px 20px color-mix(in srgb, var(--g-accent) 8%, transparent);
+  --g-shadow-card-hover: 0 18px 36px color-mix(in srgb, var(--g-accent) 16%, transparent);
 
   position: fixed;
   inset: 0;
@@ -66,7 +46,7 @@
 .opshelper-boot-text { color: #6b7280; font-size: 14px; }
 .opshelper-spinner {
   width: 30px; height: 30px; border-radius: 50%;
-  border: 3px solid #dfe3e8; border-top-color: #0b8f5e;
+  border: 3px solid #dfe3e8; border-top-color: var(--g-accent);
   animation: opshelper-spin 0.8s linear infinite;
 }
 @keyframes opshelper-spin { to { transform: rotate(360deg); } }
@@ -74,12 +54,12 @@
   border: none; cursor: pointer; border-radius: 16px;
   background: var(--g-accent);
   color: #fff; min-height: 44px; padding: 10px 18px; font-size: 14px; font-weight: 600;
-  box-shadow: 0 8px 20px rgba(0, 166, 81, 0.24);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--g-accent) 24%, transparent);
   transition: all 300ms ease-in-out;
 }
 .opshelper-btn:hover {
   background: var(--g-accent-dark);
-  box-shadow: 0 14px 28px rgba(0, 166, 81, 0.3);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--g-accent) 30%, transparent);
   transform: translateY(-2px);
 }
 .opshelper-btn:active {
@@ -99,7 +79,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 .opshelper-sidebar {
   display: flex; flex-direction: column;
-  background: #E6F4EA;
+  background: var(--g-side-bg);
   border-right: 1px solid var(--g-line);
   padding: 10px 14px 14px 5px;
   min-height: 0;
@@ -149,13 +129,8 @@
 .opshelper-brand .opshelper-search-toggle { margin-left: auto; }
 .opshelper-search-toggle .opshelper-search-icon, .opshelper-search-toggle svg { position: static; width: 18px; height: 18px; }
 
-/* 弹窗通过 portal 渲染在 .opshelper-shell 之外，需要自带所用的主题变量。 */
+/* 弹窗通过 portal 渲染在 .opshelper-shell 之外，从文档继承配色。 */
 .opshelper-search-overlay {
-  --g-accent: #00A651;
-  --g-line: #edf0f7;
-  --g-text: #1f2937;
-  --g-muted: #64748b;
-  --g-field: #f1f5f9;
   position: fixed; z-index: 500; inset: 0; display: flex; justify-content: center; align-items: flex-start;
   box-sizing: border-box; padding: clamp(48px, 20vh, 140px) 16px 24px;
   background: rgba(0, 0, 0, 0.36); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
@@ -234,7 +209,7 @@
 .opshelper-search-result-title,
 .opshelper-search-result-content { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .opshelper-search-result-content { color: var(--g-muted); font-size: 12px; }
-.opshelper-search-match { padding: 0; background: transparent; color: #16834a; font-weight: 600; }
+.opshelper-search-match { padding: 0; background: transparent; color: var(--g-accent-dark); font-weight: 600; }
 .opshelper-search-result-agent { flex: 0 0 auto; color: var(--g-muted); font-size: 12px; }
 .opshelper-search-dialog-empty { padding: 16px 12px; color: var(--g-muted); font-size: 14px; }
 @media (max-width: 520px) {
@@ -441,13 +416,6 @@
   color: var(--g-danger);
 }
 .profile-dialog-backdrop {
-  --g-accent: #00A651;
-  --g-danger: #b3423a;
-  --g-line: #edf0f7;
-  --g-line-strong: #e2e8f0;
-  --g-text: #1f2937;
-  --g-muted: #64748b;
-  --g-field: #f1f5f9;
   z-index: 40;
 }
 .profile-settings-dialog { width: min(520px, 100%); max-height: min(82vh, 760px); overflow-y: auto; }
@@ -799,8 +767,8 @@
 .opshelper-image-preview-zoom button:disabled { opacity: 0.45; cursor: default; }
 .opshelper-markdown table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 14px; border-radius: 10px; overflow: hidden; border: 1px solid var(--g-line); }
 .opshelper-markdown th, .opshelper-markdown td { border: 1px solid var(--g-line); padding: 9px 12px; text-align: left; vertical-align: top; }
-.opshelper-markdown th { background: #f8faf9; font-weight: 600; color: var(--g-text); }
-.opshelper-markdown tr:nth-child(even) td { background: rgba(0, 166, 81, 0.035); }
+.opshelper-markdown th { background: var(--g-canvas); font-weight: 600; color: var(--g-text); }
+.opshelper-markdown tr:nth-child(even) td { background: color-mix(in srgb, var(--g-accent) 3.5%, transparent); }
 
 /* ---- truthful, progressively disclosed operation record ---- */
 .opshelper-sr-only {
@@ -814,7 +782,7 @@
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .opshelper-operations:hover { border-color: var(--g-accent-line); }
-.opshelper-operations.running { border-color: var(--g-accent-line); background: #f8f9ff; box-shadow: 0 0 0 2px var(--g-accent-soft); }
+.opshelper-operations.running { border-color: var(--g-accent-line); background: var(--g-accent-soft); box-shadow: 0 0 0 2px var(--g-accent-soft); }
 .opshelper-operations.failed { border-color: #f2c5c2; background: #fffafa; }
 .opshelper-operations-summary {
   width: 100%; min-height: 40px; display: flex; align-items: center; gap: 9px;
@@ -1016,7 +984,7 @@
 .opshelper-q-custom:focus { outline: none; border-color: var(--g-accent-line); box-shadow: 0 0 0 3px var(--g-accent-soft); }
 .opshelper-q-submit {
   border: none; border-radius: 10px; padding: 9px 22px; font-size: 13.5px; font-weight: 600; cursor: pointer; color: #fff;
-  background: var(--g-accent); box-shadow: 0 8px 18px rgba(0, 166, 81, 0.22);
+  background: var(--g-accent); box-shadow: 0 8px 18px color-mix(in srgb, var(--g-accent) 22%, transparent);
 }
 .opshelper-q-submit:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.3); }
 
@@ -1049,7 +1017,7 @@
 .opshelper-perm-btn:hover { border-color: var(--g-line-strong); background: var(--g-field); }
 .opshelper-perm-btn.primary {
   border: none; color: #fff; background: var(--g-accent);
-  box-shadow: 0 8px 18px rgba(0, 166, 81, 0.22);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--g-accent) 22%, transparent);
 }
 .opshelper-perm-btn.primary:hover { filter: brightness(0.96); background: var(--g-accent); }
 .opshelper-perm-btn.danger { color: #dc2626; border-color: #f6cccc; }
@@ -1099,7 +1067,7 @@
 }
 .opshelper-composer:focus-within .opshelper-composer-keyboard-hint { opacity: 1; }
 .opshelper-composer-row:focus-within {
-  box-shadow: 0 0 0 3px rgba(0, 166, 81, 0.2), var(--g-shadow-card-hover);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-accent) 20%, transparent), var(--g-shadow-card-hover);
 }
 .opshelper-composer-dragover { outline: 2px dashed var(--g-accent); outline-offset: -6px; border-radius: 12px; }
 .opshelper-composer-drop-hint {
@@ -1188,13 +1156,13 @@
   display: grid; place-items: center;
   margin-left: auto;
   background: var(--g-accent);
-  box-shadow: 0 8px 20px rgba(0, 166, 81, 0.24);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--g-accent) 24%, transparent);
   transition: all 300ms ease-in-out;
 }
 .opshelper-send .opshelper-icon { width: 19px; height: 19px; }
 .opshelper-send:hover {
   background: var(--g-accent-dark);
-  box-shadow: 0 14px 28px rgba(0, 166, 81, 0.3);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--g-accent) 30%, transparent);
   transform: translateY(-2px);
 }
 .opshelper-send:active:not(:disabled) {
@@ -1233,16 +1201,6 @@
   -webkit-backdrop-filter: none;
 }
 .opshelper-reference-dialog {
-  --g-accent: #00a651;
-  --g-accent-dark: #00843d;
-  --g-accent-soft: #e6f4ea;
-  --g-accent-line: #a9d6b6;
-  --g-bg: #fff;
-  --g-line: #edf0f7;
-  --g-text: #1f2937;
-  --g-muted: #64748b;
-  --g-faint: #64748b;
-  --g-field: #f1f5f9;
   display: flex; flex-direction: column; width: min(680px, 100%); height: min(640px, 84vh);
   min-height: min(440px, 84vh); max-height: 84vh; overflow: hidden; padding: 0;
   border: 1px solid var(--g-line); border-radius: 16px;
@@ -1499,7 +1457,7 @@
   display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--g-text);
   cursor: pointer; user-select: none;
 }
-.opshelper-agent-cap input { accent-color: var(--g-accent, #0b8f5e); cursor: pointer; }
+.opshelper-agent-cap input { accent-color: var(--g-accent, var(--g-accent)); cursor: pointer; }
 .opshelper-skill-textarea {
   flex: 1; min-height: 280px; resize: none; border: 1px solid var(--g-line); border-radius: 10px;
   padding: 12px; font-size: 13px; line-height: 1.6; color: var(--g-text); background: var(--g-bg);
@@ -1822,18 +1780,16 @@
   --accent: var(--g-accent);
   --accent-hover: var(--g-accent-dark);
   --accent-soft: var(--g-accent-soft);
-  --success: var(--g-accent);
-  --success-bg: var(--g-accent-soft2);
   --warning: #8a5b00;
   --warning-bg: #fff5d8;
-  --danger: #b3423a;
-  --danger-bg: #fdecec;
+  --danger: var(--g-danger);
+  --danger-bg: var(--g-danger-soft);
   --radius: 24px;
   --radius-sm: 16px;
 
   flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
   padding: 32px clamp(16px, 2.4vw, 40px) 40px;
-  background: radial-gradient(ellipse at 50% 0%, rgba(0, 166, 81, 0.05), transparent 52%), var(--g-canvas);
+  background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--g-accent) 5%, transparent), transparent 52%), var(--g-canvas);
   color: var(--g-text);
   font-size: 14px;
 }
@@ -1876,11 +1832,11 @@
 }
 .opshelper-page-body .button {
   background: var(--g-accent);
-  box-shadow: 0 8px 20px rgba(0, 166, 81, 0.22);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--g-accent) 22%, transparent);
 }
 .opshelper-page-body .button:hover {
   background: var(--g-accent-dark);
-  box-shadow: 0 14px 28px rgba(0, 166, 81, 0.3);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--g-accent) 30%, transparent);
   transform: translateY(-2px);
 }
 .opshelper-page-body .button-secondary { border-color: transparent; border-radius: 16px; font-weight: 500; }
@@ -1888,7 +1844,7 @@
 .opshelper-page-body .agent-editor-actions > .button-secondary {
   border: 1px solid #cbd5e1;
   background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 166, 81, 0.08);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--g-accent) 8%, transparent);
 }
 .opshelper-page-body .agent-editor-actions > .button-secondary:hover {
   border-color: var(--g-accent);
@@ -1909,10 +1865,10 @@
   font-family: inherit;
 }
 .opshelper-page-body .field-input::placeholder { color: var(--g-faint); }
-.opshelper-page-body .field-input:hover { background: #E6F4EA; }
+.opshelper-page-body .field-input:hover { background: var(--g-accent-soft); }
 .opshelper-page-body .field-input:focus {
   border-color: transparent; background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 166, 81, 0.2), 0 8px 20px rgba(0, 166, 81, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-accent) 20%, transparent), 0 8px 20px color-mix(in srgb, var(--g-accent) 8%, transparent);
 }
 /* 多行输入采用与单行控件相同的浅底与柔和焦点光晕。 */
 .opshelper-page-body .field-textarea {
@@ -1928,7 +1884,7 @@
 .opshelper-page-body .field-textarea:focus {
   border-color: transparent;
   background: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 166, 81, 0.2), 0 8px 20px rgba(0, 166, 81, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-accent) 20%, transparent), 0 8px 20px color-mix(in srgb, var(--g-accent) 8%, transparent);
 }
 .opshelper-page-body .um-search-input { padding-right: 36px; }
 .opshelper-page-body .um-search-clear { background: #dfe3e8; color: var(--g-muted); }
@@ -2165,7 +2121,7 @@
 }
 .opshelper-page-body .agent-admin-list-mode .agent-catalog-card.selected {
   border-color: transparent; background: var(--g-accent-soft);
-  box-shadow: 0 0 0 2px rgba(0, 166, 81, 0.18), var(--g-shadow-card);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 18%, transparent), var(--g-shadow-card);
 }
 .opshelper-page-body .agent-catalog-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .opshelper-page-body .agent-catalog-card-name {
@@ -2289,7 +2245,7 @@
 }
 /* 导入面板嵌在智能体编辑卡片里：去掉阴影并换成浅底，避免卡片套卡片的双重投影。 */
 .opshelper-page-body .agent-editor .panel {
-  padding: 16px; border-radius: 14px; background: #f8faf9; box-shadow: none;
+  padding: 16px; border-radius: 14px; background: var(--g-canvas); box-shadow: none;
 }
 /* 工具栏：搜索框优先占宽，全选做成与按钮同高的描边胶囊。 */
 /* 技能仓库只列出技能名：宽屏多列，窄处自动单列；详情在弹窗里查看。 */
@@ -2423,7 +2379,7 @@
   background: var(--g-field, var(--bg)); color: var(--g-text, var(--text)); font-size: 13px;
 }
 .file-dialog .field-input:focus {
-  /* 弹窗在 .opshelper-shell 之外，拿不到 --g-* ；输入框在 globals 里被去掉 outline，
+  /* 输入框在 globals 里被去掉 outline，
      必须保留实色主色边框作为焦点提示，浅色光晕只做辅助。 */
   border-color: var(--g-accent, var(--accent)); background: #fff;
   box-shadow: 0 0 0 3px var(--g-accent-soft, var(--accent-soft));

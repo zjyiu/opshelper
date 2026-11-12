@@ -1,0 +1,69 @@
+/* All page shells and dialogs inherit the palette from the document. */
+:root {
+  color-scheme: light;
+  --g-accent: #007b3c;
+  --g-accent-dark: #006733;
+  --g-accent-soft: #e6f4ea;
+  --g-accent-soft2: #d5ebdd;
+  --g-accent-line: #a9d6b6;
+  --g-accent-soft-hover: var(--g-accent-soft2);
+  --g-side-bg: var(--g-accent-soft);
+  --g-bg: #ffffff;
+  --g-canvas: #f8fafc;
+  --g-line: #edf0f7;
+  --g-line-strong: #e2e8f0;
+  --g-text: #1f2937;
+  --g-muted: #58677c;
+  --g-faint: var(--g-muted);
+  --g-field: #f1f5f9;
+  --g-icon: #738093;
+  --g-danger: #b3423a;
+  --g-danger-soft: #fdecec;
+}
+
+:root[data-theme="gray"] {
+  --g-accent: #496894;
+  --g-accent-dark: #39537a;
+  --g-accent-soft: #edf1f6;
+  --g-accent-soft2: #e6ecf4;
+  --g-accent-line: #bccde2;
+  --g-accent-soft-hover: #dce6f2;
+  --g-side-bg: #f5f5f5;
+  --g-canvas: #fafafa;
+  --g-line: #e5e5e5;
+  --g-line-strong: #c9c9c9;
+  --g-text: #272727;
+  --g-muted: #616161;
+  --g-field: #f6f6f6;
+  --g-icon: #6b6b6b;
+}
+
+.opshelper-user-menu .theme-toggle-menu-item:focus-visible {
+  outline: 2px solid var(--g-accent);
+  outline-offset: -2px;
+}
+@media (max-width: 640px) {
+  .opshelper-user-menu .theme-toggle-menu-item { min-height: 44px; }
+}
+
+[data-theme="gray"] .opshelper-page-body { background: var(--g-canvas); }
+
+[data-theme="gray"] .opshelper-chat-topbar {
+  box-shadow: inset 0 -1px var(--g-line);
+}
+
+[data-theme="gray"] .opshelper-msg-user .opshelper-bubble,
+[data-theme="gray"] .opshelper-code-block {
+  background: var(--g-field);
+  border-color: var(--g-line);
+  box-shadow: none;
+}
+[data-theme="gray"] .opshelper-code-header { border-color: var(--g-line); }
+
+[data-theme="gray"] .opshelper-composer-row {
+  box-shadow: inset 0 0 0 1px var(--g-line-strong);
+}
+[data-theme="gray"] .opshelper-composer-row:focus-within {
+  box-shadow: inset 0 0 0 2px var(--g-accent);
+}
+[data-theme="gray"] .opshelper-send { box-shadow: none; }

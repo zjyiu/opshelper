@@ -21,7 +21,7 @@ export default async function LoginPage({
     : undefined;
 
   return (
-    <div className="shell shell-sidebar-hidden shell-headerless">
+    <div className="shell shell-sidebar-hidden shell-headerless login-shell">
       <main className="main">
         <div className="content content-wide">
           <div className="login-wrapper login-wrapper-standalone">

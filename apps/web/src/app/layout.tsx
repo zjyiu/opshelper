@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { DM_Sans, Space_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
 import { Toaster } from "sonner";
 
+import { ThemeProvider } from "@/components/theme-toggle";
 import { DialogHost } from "@/components/ui/dialog-host";
 import { UploadFloater } from "@/components/upload-floater";
 
+import "./themes.css";
 import "./globals.css";
 import "./chat.css";
 
@@ -28,15 +31,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: ReactNode;
 }>) {
+  const theme = (await cookies()).get("opshelper-theme")?.value === "gray" ? "gray" : "green";
+
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-theme={theme}>
       <body className={`${display.variable} ${body.variable}`}>
-        {children}
+        <ThemeProvider initialTheme={theme}>{children}</ThemeProvider>
         <DialogHost />
         <UploadFloater />
         <Toaster

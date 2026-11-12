@@ -1,35 +1,35 @@
 :root {
-  --bg: #f8fafc;
-  --sidebar-bg: #ffffff;
+  --bg: var(--g-canvas);
+  --sidebar-bg: var(--g-side-bg);
   --sidebar-width: 220px;
   --workspace-dock-width: 52px;
   --workspace-panel-width: 420px;
   --header-height: 56px;
-  --panel: #ffffff;
-  --panel-strong: #ffffff;
-  --line: rgba(100, 116, 139, 0.12);
-  --line-strong: rgba(100, 116, 139, 0.2);
-  --text: #1f2937;
-  --muted: #64748b;
-  --accent: #00A651;
-  --accent-hover: #00843D;
-  --accent-soft: rgba(0, 166, 81, 0.1);
+  --panel: var(--g-bg);
+  --panel-strong: var(--g-bg);
+  --line: var(--g-line);
+  --line-strong: var(--g-line-strong);
+  --text: var(--g-text);
+  --muted: var(--g-muted);
+  --accent: var(--g-accent);
+  --accent-hover: var(--g-accent-dark);
+  --accent-soft: var(--g-accent-soft);
   --success: #059669;
   --success-bg: rgba(5, 150, 105, 0.10);
   --warning: #d97706;
   --warning-bg: rgba(217, 119, 6, 0.10);
-  --danger: #dc2626;
-  --danger-bg: rgba(220, 38, 38, 0.10);
+  --danger: var(--g-danger);
+  --danger-bg: var(--g-danger-soft);
   --radius: 24px;
   --radius-sm: 16px;
   /* 统一的分层阴影设计令牌 */
-  --shadow-xs: 0 2px 8px rgba(0, 166, 81, 0.06);
-  --shadow-sm: 0 6px 16px rgba(0, 166, 81, 0.08);
-  --shadow-md: 0 10px 24px rgba(0, 166, 81, 0.1);
-  --shadow-lg: 0 16px 32px rgba(0, 166, 81, 0.12);
-  --shadow-xl: 0 20px 40px rgba(0, 166, 81, 0.16);
-  --shadow-card: 0 6px 18px rgba(0, 166, 81, 0.07);
-  --shadow-card-hover: 0 16px 32px rgba(0, 166, 81, 0.14);
+  --shadow-xs: 0 2px 8px color-mix(in srgb, var(--g-accent) 6%, transparent);
+  --shadow-sm: 0 6px 16px color-mix(in srgb, var(--g-accent) 8%, transparent);
+  --shadow-md: 0 10px 24px color-mix(in srgb, var(--g-accent) 10%, transparent);
+  --shadow-lg: 0 16px 32px color-mix(in srgb, var(--g-accent) 12%, transparent);
+  --shadow-xl: 0 20px 40px color-mix(in srgb, var(--g-accent) 16%, transparent);
+  --shadow-card: 0 6px 18px color-mix(in srgb, var(--g-accent) 7%, transparent);
+  --shadow-card-hover: 0 16px 32px color-mix(in srgb, var(--g-accent) 14%, transparent);
 }
 
 * {
@@ -50,8 +50,8 @@ html, body {
 
 /* 优雅的平滑滚动条与全局高亮色 */
 ::selection {
-  background: rgba(0, 166, 81, 0.16);
-  color: #312e81;
+  background: color-mix(in srgb, var(--g-accent) 16%, transparent);
+  color: var(--g-text);
 }
 
 ::-webkit-scrollbar {
@@ -568,7 +568,7 @@ select:focus-visible {
 .kpi-card:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-card-hover);
-  border-color: rgba(0, 166, 81, 0.2);
+  border-color: color-mix(in srgb, var(--g-accent) 20%, transparent);
 }
 
 .kpi-label {
@@ -666,7 +666,7 @@ select:focus-visible {
 .status-creating {
   color: var(--accent);
   background: var(--accent-soft);
-  border-color: rgba(0, 166, 81, 0.18);
+  border-color: color-mix(in srgb, var(--g-accent) 18%, transparent);
 }
 
 .status-creating::before {
@@ -726,12 +726,12 @@ select:focus-visible {
 .button {
   background: var(--accent);
   color: white;
-  box-shadow: 0 8px 18px rgba(0, 166, 81, 0.22);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--g-accent) 22%, transparent);
 }
 
 .button:hover {
   background: var(--accent-hover);
-  box-shadow: 0 12px 24px rgba(0, 166, 81, 0.28);
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--g-accent) 28%, transparent);
   transform: translateY(-0.5px);
 }
 
@@ -744,7 +744,7 @@ select:focus-visible {
 
 .button-secondary:hover {
   border-color: var(--line-strong);
-  background: #f8faf9;
+  background: var(--g-canvas);
   box-shadow: var(--shadow-sm);
 }
 
@@ -820,7 +820,7 @@ select:focus-visible {
   padding: 10px 14px;
   border: 0;
   border-radius: 16px;
-  background: #f1f5f9;
+  background: var(--g-field);
   color: var(--text);
   font-size: 0.9rem;
   outline: none;
@@ -829,13 +829,13 @@ select:focus-visible {
 }
 
 .field-input:hover {
-  background: #E6F4EA;
+  background: var(--g-accent-soft);
 }
 
 .field-input:focus {
   border-color: transparent;
   background: #ffffff;
-  box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 20px rgba(0, 166, 81, 0.08);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 8px 20px color-mix(in srgb, var(--g-accent) 8%, transparent);
 }
 
 /* 多行输入沿用 .field-input 的形态：同色描边、同圆角、同焦点环，
@@ -1406,7 +1406,7 @@ select:focus-visible {
 }
 
 .workspace-file-content .file-tree-drop-target {
-  background: rgba(0, 166, 81, 0.05);
+  background: color-mix(in srgb, var(--g-accent) 5%, transparent);
 }
 
 .workspace-file-content .file-tree-row {
@@ -1645,7 +1645,7 @@ select:focus-visible {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(0, 166, 81, 0.12);
+  background: color-mix(in srgb, var(--g-accent) 12%, transparent);
   color: var(--accent);
   font-weight: 650;
 }
@@ -1806,7 +1806,7 @@ select:focus-visible {
 .file-breadcrumb-segment-drop {
   background: var(--g-accent-soft, var(--accent-soft));
   color: var(--g-accent-dark, var(--accent));
-  box-shadow: inset 0 0 0 1px rgba(0, 166, 81, 0.28);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-accent) 28%, transparent);
 }
 
 .file-manager {
@@ -1856,8 +1856,8 @@ select:focus-visible {
 }
 
 .file-tree-drop-target {
-  background: rgba(0, 166, 81, 0.04);
-  box-shadow: inset 0 0 0 1px rgba(0, 166, 81, 0.2);
+  background: color-mix(in srgb, var(--g-accent) 4%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-accent) 20%, transparent);
 }
 
 .file-tree-row {
@@ -1881,7 +1881,7 @@ select:focus-visible {
 
 .file-tree-row-selected,
 .file-tree-row-checked {
-  background: rgba(0, 166, 81, 0.07);
+  background: color-mix(in srgb, var(--g-accent) 7%, transparent);
 }
 
 .file-tree-row-cut {
@@ -1897,8 +1897,8 @@ select:focus-visible {
 }
 
 .file-tree-row-drop-target {
-  background: rgba(0, 166, 81, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(0, 166, 81, 0.28);
+  background: color-mix(in srgb, var(--g-accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-accent) 28%, transparent);
 }
 
 .file-tree-row-head {
@@ -2069,7 +2069,7 @@ select:focus-visible {
 }
 
 .file-row-quick-action:hover {
-  background: var(--g-accent-soft, rgba(0, 166, 81, 0.14));
+  background: var(--g-accent-soft, color-mix(in srgb, var(--g-accent) 14%, transparent));
   color: var(--g-accent-dark, var(--text));
 }
 
@@ -2915,13 +2915,39 @@ select:focus-visible {
   isolation: isolate;
 }
 
+.login-shell {
+  /* The sign-in page keeps its original palette independently of the workspace preference. */
+  --g-accent: #00a651;
+  --g-accent-dark: #00843d;
+  --g-accent-soft: #e6f4ea;
+  --g-field: #f1f5f9;
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --line: rgba(100, 116, 139, 0.12);
+  --line-strong: rgba(100, 116, 139, 0.2);
+  --text: #1f2937;
+  --muted: #64748b;
+  --accent: var(--g-accent);
+  --accent-hover: var(--g-accent-dark);
+  --accent-soft: color-mix(in srgb, var(--g-accent) 10%, transparent);
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.1);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.login-shell ::selection {
+  background: color-mix(in srgb, var(--g-accent) 16%, transparent);
+  color: #312e81;
+}
+
 .login-wrapper-standalone {
   min-height: 100vh;
   background:
-    radial-gradient(ellipse 65% 50% at 50% 0%, rgba(0, 166, 81, 0.12), transparent 70%),
+    radial-gradient(ellipse 65% 50% at 50% 0%, color-mix(in srgb, var(--g-accent) 12%, transparent), transparent 70%),
     radial-gradient(circle 480px at 85% 85%, rgba(236, 72, 153, 0.06), transparent 70%),
-    radial-gradient(circle 400px at 15% 75%, rgba(0, 166, 81, 0.05), transparent 60%),
-    linear-gradient(160deg, #ffffff 0%, #F3FAF5 52%, #E6F4EA 100%);
+    radial-gradient(circle 400px at 15% 75%, color-mix(in srgb, var(--g-accent) 5%, transparent), transparent 60%),
+    linear-gradient(160deg, #ffffff 0%, #f3faf5 52%, var(--g-accent-soft) 100%);
 }
 
 
@@ -2939,15 +2965,15 @@ select:focus-visible {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   box-shadow:
-    0 12px 28px rgba(0, 166, 81, 0.1),
-    0 24px 56px rgba(0, 166, 81, 0.12);
+    0 12px 28px color-mix(in srgb, var(--g-accent) 10%, transparent),
+    0 24px 56px color-mix(in srgb, var(--g-accent) 12%, transparent);
   transition: transform 300ms ease-in-out, box-shadow 300ms ease-in-out;
 }
 
 .login-card .panel:hover {
   box-shadow:
-    0 16px 36px rgba(0, 166, 81, 0.14),
-    0 30px 64px rgba(0, 166, 81, 0.16);
+    0 16px 36px color-mix(in srgb, var(--g-accent) 14%, transparent),
+    0 30px 64px color-mix(in srgb, var(--g-accent) 16%, transparent);
 }
 
 .login-card .panel-title {
@@ -2968,13 +2994,13 @@ select:focus-visible {
   background: #fff;
   color: var(--text, #1f2937);
   border: 0;
-  box-shadow: 0 2px 10px rgba(0, 166, 81, 0.12), 0 0 0 1px rgba(0, 166, 81, 0.08);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--g-accent) 12%, transparent), 0 0 0 1px color-mix(in srgb, var(--g-accent) 8%, transparent);
 }
 
 .login-card .button:hover:not(:disabled) {
-  background: #E6F4EA;
-  color: #00843D;
-  box-shadow: 0 8px 20px rgba(0, 166, 81, 0.16), 0 0 0 1px rgba(0, 166, 81, 0.12);
+  background: var(--g-accent-soft);
+  color: var(--g-accent-dark);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--g-accent) 16%, transparent), 0 0 0 1px color-mix(in srgb, var(--g-accent) 12%, transparent);
   transform: translateY(-2px);
 }
 
@@ -4486,7 +4512,7 @@ select:focus-visible {
 
 .file-context-menu-item:hover:not(:disabled),
 .file-context-menu-item:focus-visible:not(:disabled) {
-  background: rgba(0, 166, 81, 0.1);
+  background: color-mix(in srgb, var(--g-accent) 10%, transparent);
   outline: none;
 }
 
@@ -4814,9 +4840,9 @@ select:focus-visible {
 .schedule-notice {
   flex: 0 0 auto;
   border: 0;
-  border-bottom: 1px solid var(--g-accent-line, rgba(0, 166, 81, 0.2));
+  border-bottom: 1px solid var(--g-accent-line, color-mix(in srgb, var(--g-accent) 20%, transparent));
   border-radius: 0;
-  background: var(--g-accent-soft2, rgba(0, 166, 81, 0.08));
+  background: var(--g-accent-soft2, color-mix(in srgb, var(--g-accent) 8%, transparent));
   padding: 9px 14px;
   font-size: 12.5px;
   line-height: 1.6;
@@ -4848,7 +4874,7 @@ select:focus-visible {
   grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
   gap: 12px;
   padding: 14px;
-  background: #fbfcfb;
+  background: var(--g-canvas);
 }
 
 /* 任务很少时把 panel 放大到合适宽度，避免一块卡片旁边空出一整排。 */
@@ -4877,7 +4903,7 @@ select:focus-visible {
 
 .schedule-panel.active {
   border-color: var(--g-accent, var(--accent));
-  background: var(--g-accent-soft, rgba(0, 166, 81, 0.1));
+  background: var(--g-accent-soft, color-mix(in srgb, var(--g-accent) 10%, transparent));
 }
 
 .schedule-panel-head {
@@ -5000,7 +5026,7 @@ select:focus-visible {
   margin-top: 8px;
   white-space: pre-wrap;
   border: 1px solid var(--g-line, var(--line));
-  background: #fbfcfb;
+  background: var(--g-canvas);
   border-radius: 10px;
   padding: 12px 14px;
   font-size: 13px;
@@ -5058,7 +5084,7 @@ select:focus-visible {
   overflow: auto;
   border: 1px solid var(--g-line, var(--line));
   border-radius: 12px;
-  background: #fbfcfb;
+  background: var(--g-canvas);
   padding: 14px 16px;
 }
 .schedule-result-text.opshelper-markdown { font-size: 13.5px; color: var(--g-text, var(--text)); }
@@ -5097,7 +5123,7 @@ select:focus-visible {
   border-radius: 16px;
   display: grid;
   place-items: center;
-  background: var(--g-accent-soft, rgba(0, 166, 81, 0.1));
+  background: var(--g-accent-soft, color-mix(in srgb, var(--g-accent) 10%, transparent));
   color: var(--g-accent-dark, var(--accent));
 }
 .schedule-onboarding-icon .opshelper-icon { width: 26px; height: 26px; }
@@ -5240,7 +5266,7 @@ select:focus-visible {
   padding: 4px 8px;
   border-radius: 7px;
   background: var(--g-accent-soft, var(--accent-soft));
-  color: #25634f;
+  color: var(--g-accent-dark);
   font-size: 12px;
 }
 .schedule-file-chips button { border: 0; background: transparent; color: inherit; font-size: 13px; line-height: 1; }
@@ -5501,7 +5527,7 @@ select:focus-visible {
   font-size: 13px;
   cursor: pointer;
 }
-.file-new-menu-list button:hover { background: rgba(0, 166, 81, 0.08); }
+.file-new-menu-list button:hover { background: color-mix(in srgb, var(--g-accent) 8%, transparent); }
 .file-new-menu-list svg { width: 15px; height: 15px; }
 
 .file-view-bar {
@@ -5522,8 +5548,8 @@ select:focus-visible {
   cursor: pointer;
 }
 .file-view-tabs button.is-active {
-  background: rgba(0, 166, 81, 0.12);
-  color: #00843D;
+  background: color-mix(in srgb, var(--g-accent) 12%, transparent);
+  color: var(--g-accent-dark);
   font-weight: 600;
 }
 .file-search-input { width: 220px; max-width: 45%; min-height: 30px; padding: 4px 10px; font-size: 13px; }
@@ -5539,7 +5565,7 @@ select:focus-visible {
   font-size: 13px;
   cursor: pointer;
 }
-.file-head-bulk button:hover { background: rgba(0, 166, 81, 0.1); color: #00843D; }
+.file-head-bulk button:hover { background: color-mix(in srgb, var(--g-accent) 10%, transparent); color: var(--g-accent-dark); }
 .file-head-bulk button.is-danger:hover { background: rgba(200, 40, 40, 0.1); color: #b42318; }
 
 .file-row-star.is-favorite { color: #d99a00; opacity: 1; visibility: visible; }
@@ -5557,9 +5583,9 @@ select:focus-visible {
 }
 .file-dropzone:hover,
 .file-dropzone.is-over {
-  border-color: #00A651;
-  background: rgba(0, 166, 81, 0.06);
-  color: #00843D;
+  border-color: var(--g-accent);
+  background: color-mix(in srgb, var(--g-accent) 6%, transparent);
+  color: var(--g-accent-dark);
 }
 
 .file-manager-with-sidebar {
@@ -5583,10 +5609,10 @@ select:focus-visible {
   text-align: left;
   cursor: pointer;
 }
-.file-sidebar button:hover { background: rgba(0, 166, 81, 0.06); }
+.file-sidebar button:hover { background: color-mix(in srgb, var(--g-accent) 6%, transparent); }
 .file-sidebar button.is-active {
-  background: rgba(0, 166, 81, 0.12);
-  color: #00843D;
+  background: color-mix(in srgb, var(--g-accent) 12%, transparent);
+  color: var(--g-accent-dark);
   font-weight: 600;
 }
 .file-manager-main {
