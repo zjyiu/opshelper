@@ -24,6 +24,7 @@ import {
   startExecutionLoop,
 } from "./lib/conversation-service";
 import { registerScheduleRoutes } from "./routes/schedules";
+import { registerIntegrationRoutes } from "./routes/integration";
 
 const config = loadConfig();
 
@@ -76,6 +77,7 @@ async function bootstrap() {
   await registerAgentRoutes(app);
   await registerConversationRoutes(app);
   await registerScheduleRoutes(app);
+  await registerIntegrationRoutes(app);
 
   await resumeRuntimeConfigurationApplications()
     .then((result) => {

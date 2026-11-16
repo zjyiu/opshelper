@@ -165,6 +165,7 @@ npm run build:web
 - [贡献指南](CONTRIBUTING.md)
 - [管理员手册](docs/guide/admin.md)
 - [用户手册](docs/guide/user.md)
+- [外部系统对话 API 调用手册](docs/guide/external-chat-api.md)
 - [源码部署](docs/guide/deployment.md)
 - [OpenCode 2 切换、验证与恢复](docs/guide/opencode-2-migration.md)
 - [Linux x86_64 离线部署](docs/guide/offline-amd64.md)

@@ -118,6 +118,8 @@ docker-compose --env-file .env logs --tail=100 migrate
 
 启动依赖顺序：`postgres-init` → PostgreSQL 健康 → `migrate` 仅执行 `prisma migrate deploy`，首次安装再显式运行 `bootstrap` → API → Worker、Web → nginx。迁移已内置镜像，使用本地 npm 命令执行，不下载依赖。`bootstrap` 只允许所有业务表为空；升级、重启和恢复禁止运行它或 seed。旧发布包可能仍将 seed 与迁移绑定，操作时必须遵循对应包的版本说明，不要套用当前命令。
 
+升级到支持外部系统对话的版本时，须应用新增的用户 API Token 表迁移，并更新发布包中的 nginx 配置；数据库备份包含 Token 摘要，恢复旧备份可能恢复当时尚未撤销的 Token。接口和凭证安全要求见[用户手册](user.md#外部系统调用)。
+
 预期 `postgres-init`、`migrate` 为 `Exited (0)`；postgres、api、worker、web、nginx 为运行且健康。迁移失败时先查看日志解决，不执行 `prisma db push`。
 
 ## 5. 验收

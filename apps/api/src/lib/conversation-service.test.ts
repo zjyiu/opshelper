@@ -440,6 +440,20 @@ test("结果弹窗保留较长回答，协作摘要仍保持简短", () => {
   assert.equal(summarizeMessage(message)?.length, 1200);
 });
 
+test("外部接口可读取超过摘要上限的完整回答，仍排除推理", () => {
+  const promptMarker = "long-answer";
+  const answer = "答".repeat(9001);
+  const messages = [
+    { info: { id: "user", role: "user" }, parts: [{ type: "text", text: executionPromptMarker(promptMarker) }] },
+    { info: { id: "assistant", role: "assistant", parentID: "user" }, parts: [
+      { type: "reasoning", text: "隐藏推理" },
+      { type: "text", text: answer },
+    ] },
+  ];
+  assert.equal(executionAnswerText(messages, { id: "execution", promptMarker })?.length, 8000);
+  assert.equal(executionAnswerText(messages, { id: "execution", promptMarker }, Infinity), answer);
+});
+
 test("历史执行回答按对话页规则重新提取：不含推理，也不泄漏内部输出目录", () => {
   const promptMarker = "7c1f2b4e-2a91-4a0f-9f4d-0f8f0c4b7f31";
   const executionId = "execution-history";

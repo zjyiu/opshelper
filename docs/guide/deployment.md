@@ -39,6 +39,8 @@ python3 scripts/opshelper.py --env-file /absolute/deployment/.env up
 ```
 
 首次安装：`bootstrap` 启动 PostgreSQL、执行迁移，再创建初始管理员；`up` 执行迁移并启动 API、worker、web、nginx。已有实例仅执行 `up`，不会初始化数据。普通 API 重启不执行 `db push`，不修改 schema。迁移失败时不会启动新应用。管理员首次登录后配置模型、创建智能体、创建用户并分配，详见[管理员手册](admin.md)。未配置模型或未分配智能体时不能聊天，这是可见配置状态。
+
+外部系统调用需要更新 API 并应用用户 API Token 表迁移；源码部署还需更新 nginx 配置以允许同步对话等待。API Token 摘要包含在数据库备份中，恢复旧备份可能恢复当时尚未撤销的 Token，应按需重新撤销或轮换。使用方法及安全注意事项见[用户手册](user.md#外部系统调用)。
 需要停机维护时，可执行 `down`（同义命令 `stop`）停止平台 Compose 容器和当前部署目录的用户运行容器。
 
 ## 数据、网络与资源

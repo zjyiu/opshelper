@@ -37,6 +37,40 @@ opshelper 以对话为主工作区。每位用户使用自己的固定 OpenCode 
 
 对话列表中的叉号执行“归档对话”，不会回退或删除工作目录里的文件；归档只是从列表隐藏，带链接（例如定时任务结果里的“打开完整对话”）仍可打开，在里面再次发言会让它回到列表。“从这里重新开始”会新建对话并复制该条用户消息到输入框，也不会回退文件。
 
+## 外部系统调用
+
+完整接口参数、请求与响应示例见[外部系统对话 API 调用手册](external-chat-api.md)。
+
+用户可以通过 API 为自己的账号创建独立 Token，供外部系统调用已分配的主智能体。Token 代表该用户：智能体可能使用该用户工作区、工具和外部连接，应仅交给可信系统，使用 HTTPS，禁止放在 URL、日志或公开位置。Token 不适用于管理接口或网页登录；Token 没有自动过期时间，泄露后立即撤销。Token 被撤销或用户被停用后，后续请求不能认证；已经受理的执行不会因此自动停止。
+
+先用该用户账号 `POST /v1/auth/login`（JSON：`{"username":"用户名","password":"密码"}`）取得登录会话的 `session.token`。以下 Token 管理接口使用登录会话的 `Authorization: Bearer <session.token>` 或登录 Cookie，**不能**使用 API Token：
+
+| 方法及路径 | 用途 |
+| --- | --- |
+| `POST /v1/users/me/api-tokens` | 请求 `{"name":"外部系统名称"}`，返回 `id`、`name`、`createdAt` 和 `token`；明文只返回这一次，数据库仅保存摘要 |
+| `GET /v1/users/me/api-tokens` | 列出自己的 Token 信息，不返回明文 |
+| `DELETE /v1/users/me/api-tokens/{tokenId}` | 撤销自己的指定 Token，成功返回 204 |
+
+使用得到的 API Token，在请求头设置 `Authorization: Bearer <token>` 和 `Content-Type: application/json`：
+
+```http
+POST /v1/integration/chat
+
+{"agentKey":"network-ops","text":"检查网络状态"}
+```
+
+`agentKey` 必须是该用户已获分配、启用、检查就绪且可担任主智能体的 key；可用主智能体可用登录会话访问 `GET /v1/conversations` 查看。`text` 为非空文本，最长 100,000 字符。默认创建新会话；要多轮对话，在后续请求中传入之前返回的 `conversationId`：
+
+```json
+{"agentKey":"network-ops","text":"继续分析","conversationId":"上次返回的会话ID"}
+```
+
+接口最多等待约 45 秒（不含创建会话和读取结果的时间）。成功返回 HTTP 200 和 `{"conversationId":"...","executionId":"...","status":"succeeded","answer":"..."}`，回答不包含模型推理。任务仍在排队或执行时返回 HTTP 202、相同的 ID 和状态；用同一个 API Token 调用 `GET /v1/integration/executions/{executionId}` 查询，完成后返回完整回答。读取回答暂时失败时返回 HTTP 503 和执行 ID，也应查询该执行，而不是重新发送对话。接入方及外层代理的超时设置应大于等待时间。
+
+执行需要用户回答或工具授权时返回 HTTP 409、`status: "waiting_input"` 和执行 ID；本接口不会自动授权，也不提供交互回复。请登录工作台处理后继续查询。执行失败、取消、状态无法确认或没有可展示文本时返回 HTTP 502，包含执行 ID、状态和原因；认证失败为 401，智能体未分配为 403，非本人会话或执行为 404。其他错误返回 `message`。
+
+每次 POST 都会创建新的执行，**没有请求幂等保证**。收到 202 或带执行 ID 的错误后只查询已有执行，勿重新 POST；如果连接中断且未取得执行 ID，先到用户工作台核对，避免重复执行造成副作用。可继续使用已归档的本人会话；不能访问其他用户的会话。
+
 ## 附件与我的文件
 
 聊天顶部文件按钮和输入框回形针只用于添加本次输入附件。需要整理文件时进入 `/gateway/files` 的“我的文件”。完整文件管理支持：

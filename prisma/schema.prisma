@@ -85,6 +85,7 @@ model User {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   sessions           Session[]
+  apiTokens          UserApiToken[]
   container          ContainerInstance?
   activities         ContainerActivity[]
   agents             UserAgent[]
@@ -135,6 +136,17 @@ model Session {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+}
+
+model UserApiToken {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  tokenHash String   @unique
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model SsoSettings {

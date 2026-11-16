@@ -203,10 +203,11 @@ export interface ExecutionAnswerSource {
 export function executionAnswerText(
   messages: unknown[],
   execution: ExecutionAnswerSource,
+  limit = maxResultLength,
 ): string | null {
   const replies = currentExecutionMessages(messages, executionPromptMarker(execution.promptMarker));
   for (const reply of [...replies].reverse()) {
-    const text = summarizeMessage(reply, maxResultLength);
+    const text = summarizeMessage(reply, limit);
     if (!text) continue;
     return redactExecutionOutputPathsInText(text, execution.id);
   }
@@ -338,6 +339,7 @@ function visibleUserMessage(message: unknown, execution: VisibleExecutionMessage
 export async function readExecutionAnswer(
   userId: string,
   execution: Pick<Execution, "id" | "promptMarker" | "conversationId">,
+  limit = maxResultLength,
 ): Promise<string | null> {
   const conversation = await prisma.conversation.findFirst({
     where: { id: execution.conversationId, userId },
@@ -352,7 +354,7 @@ export async function readExecutionAnswer(
     undefined,
     15_000,
   );
-  return executionAnswerText(Array.isArray(messages) ? messages : [], execution);
+  return executionAnswerText(Array.isArray(messages) ? messages : [], execution, limit);
 }
 
 export function sanitizeRuntimeMessages(
