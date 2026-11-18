@@ -119,7 +119,47 @@ async function upgraded(admin, alice) {
   await complete(alice, fixture.conversation, await send(alice, fixture.conversation, "E2E_CONTINUE"), "HISTORY_CONTINUE_OK");
   record("V2 conversation preserves context across turns");
 
-  if (process.env.VALIDATION_FROM !== "interactions") {
+  if (process.env.VALIDATION_FROM === "integration-stream") {
+    const token = (await alice.request("/v1/users/me/api-tokens", "POST", { name: "isolated integration" }, 201)).token;
+    async function stream(prompt, conversationId) {
+      const response = await fetch(`${base}/v1/integration/chat`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ agentKey: "fixture-lead", text: prompt, conversationId, stream: true, autoApprovePermissions: true }),
+        signal: AbortSignal.timeout(120_000),
+      });
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get("content-type"), /text\/event-stream/);
+      const decoder = new TextDecoder();
+      let frames = "";
+      let sawPartial = false;
+      for await (const chunk of response.body) {
+        frames += decoder.decode(chunk, { stream: true });
+        if (/event: text\ndata: .*"delta":"STREAM_ALPHA[^"]*"/.test(frames) &&
+          !frames.includes("STREAM_ALPHA_BETA_GAMMA_DELTA_完成")) sawPartial = true;
+      }
+      assert.ok(frames.includes("event: accepted"));
+      assert.ok(frames.includes('"status":"succeeded"'));
+      assert.ok(!frames.includes("opshelper-execution:"));
+      return { frames, sawPartial };
+    }
+    const basic = await stream("E2E_INTEGRATION_STREAM", fixture.conversation);
+    assert.ok(basic.sawPartial, "stream should deliver text before completion");
+    assert.ok(basic.frames.includes("STREAM_ALPHA"));
+    assert.ok(!basic.frames.includes("HISTORY_CONTINUE_OK"), "previous turn must not leak into stream");
+    const previous = await send(alice, fixture.conversation, "E2E_INTEGRATION_STREAM");
+    const queued = await stream("E2E_CONTINUE", fixture.conversation);
+    assert.ok(!queued.frames.includes("event: status"), "transient execution status frames are omitted");
+    assert.ok(!queued.frames.includes("STREAM_ALPHA"), "queued execution must not stream another turn");
+    assert.ok(queued.frames.includes("HISTORY_CONTINUE_OK"));
+    await complete(alice, fixture.conversation, previous, "STREAM_ALPHA_BETA_GAMMA_DELTA_完成");
+    const child = await stream("E2E_NESTED_CHILD_PERMISSION");
+    assert.ok(child.frames.includes("CHILD_PERMISSION_OK"), "nested child authorization should be automatic");
+    record("external SSE emits scoped partial text through nginx and automatically authorizes nested children");
+    return;
+  }
+
+  if (!["interactions", "child-permission"].includes(process.env.VALIDATION_FROM ?? "")) {
   const id = await conversation(alice);
   const controller = new AbortController();
   let frames = "";
@@ -189,6 +229,41 @@ async function upgraded(admin, alice) {
   record("question waits and resumes after reply");
 
   docker("exec", `opshelper-user-${uid}`, "sh", "-c", "printf PERMISSION_CONTENT_OK > /tmp/upgrade-fixture.txt");
+  for (const [prompt, response] of [
+    ["E2E_CHILD_PERMISSION", "once"],
+    ["E2E_NESTED_CHILD_PERMISSION", "once"],
+    ["E2E_CHILD_PERMISSION", "reject"],
+  ]) {
+    const id = await conversation(alice);
+    const eid = await send(alice, id, prompt);
+    const pending = await until(
+      () => snapshot(alice, id),
+      (state) => state.pendingPermissions.length > 0 || ["failed", "succeeded", "interrupted"].includes(execution(state, eid)?.status),
+      "child permission in runtime",
+      30_000,
+    );
+    assert.ok(pending.pendingPermissions.length, "child permission must appear in top-level snapshot");
+    const permissionId = pending.pendingPermissions[0].id;
+    const nativePermissions = runtime(uid, "/api/permission/request").value.data;
+    assert.ok(nativePermissions.some((permission) => permission.id === permissionId));
+    await alice.request(`/v1/executions/${eid}/permissions/${permissionId}/reply`, "POST", { response });
+    if (response === "once") {
+      await complete(alice, id, eid, "CHILD_PERMISSION_OK");
+    } else {
+      const finished = await until(() => snapshot(alice, id), (state) =>
+        ["failed", "cancelled", "interrupted", "succeeded"].includes(execution(state, eid)?.status), "rejected child permission");
+      assert.equal(finished.pendingPermissions.length, 0);
+      assert.ok(!text(finished).includes("CHILD_PERMISSION_OK"));
+    }
+    record(`${prompt}: parent ${response} resolves child permission`);
+  }
+  {
+    const id = await conversation(alice);
+    const eid = await send(alice, id, "E2E_CHILD_PERMISSION", { autoApprovePermissions: true });
+    await complete(alice, id, eid, "CHILD_PERMISSION_OK");
+    record("child permission is automatically approved when enabled");
+  }
+  if (process.env.VALIDATION_FROM === "child-permission") return;
   for (const response of ["once", "reject", "auto"]) {
     const pid = await conversation(alice);
     const peid = await send(alice, pid, "E2E_PERMISSION", { autoApprovePermissions: response === "auto" });

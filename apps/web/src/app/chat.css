@@ -435,6 +435,16 @@
   width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
 }
 .profile-settings-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--g-danger); font-size: 13px; }
+.profile-token-content, .profile-token-list, .profile-token-created { display: grid; gap: 12px; }
+.profile-token-intro, .profile-token-created p { margin: 0; line-height: 1.6; }
+.profile-token-created { padding: 14px; border: 1px solid var(--g-line-strong); border-radius: 10px; background: var(--g-field); }
+.profile-token-create { display: flex; align-items: flex-end; gap: 10px; }
+.profile-token-create .field { flex: 1; min-width: 0; }
+.profile-token-list ul { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.profile-token-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--g-line); border-radius: 8px; }
+.profile-token-details { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.profile-token-details .muted { font-size: 12px; }
+@media (max-width: 480px) { .profile-token-create { align-items: stretch; flex-direction: column; } }
 /* 头像改用品牌色浅底（与智能体头像同一套语言），灰色圆头像读起来像“未设置”。 */
 .opshelper-user-avatar {
   width: 28px; height: 28px; border-radius: 50%; flex: 0 0 auto;
@@ -507,6 +517,7 @@
 /* The conversation + its floating preview card share a positioned stage so the
    card can pin to the top-right of the chat area without overlapping the topbar. */
 .opshelper-stage {
+  --g-composer-width: calc(55% + 26.4px);
   position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
   background: #fff;
 }
@@ -894,12 +905,12 @@
 .opshelper-operation-private { padding: 7px 9px; border-radius: 7px; background: var(--g-field); }
 .opshelper-tool-block {
   max-height: 240px; margin: 5px 0 8px; padding: 10px 11px; overflow: auto;
-  border-radius: 8px; background: #0f1f1a; color: #e6f4ee;
+  border-radius: 8px; background: #f8f8f8; color: #24292f;
   font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
 }
-/* 参数是本次请求的输入，用浅色块；输出保留深色代码块，两者一眼可分。 */
+/* 参数和输出使用一致的浅灰背景；细边框仍区分输入块。 */
 .opshelper-tool-block.opshelper-tool-input {
-  border: 1px solid var(--g-line-strong); background: var(--g-field); color: var(--g-text);
+  border: 1px solid var(--g-line-strong);
 }
 .opshelper-caret {
   flex: 0 0 auto; width: 22px; height: 22px; display: grid; place-items: center;
@@ -1024,7 +1035,6 @@
 .opshelper-perm-btn.danger:hover { background: #fdecec; border-color: #f6cccc; }
 
 .opshelper-composer {
-  --g-composer-width: calc(55% + 26.4px);
   flex: 0 0 auto; padding: 10px 24px 14px; display: flex; flex-direction: column; align-items: center; gap: 6px;
   border-top: 0; background: transparent; position: relative;
 }
@@ -1059,13 +1069,21 @@
 }
 .opshelper-composer-expand:hover { background: var(--g-field); color: var(--g-accent-dark); }
 .opshelper-composer-expand .opshelper-icon { width: 16px; height: 16px; }
-/* 快捷键是一次性知识：占位常留（避免布局跳动），但只在输入框获得焦点时显形。 */
-.opshelper-composer-keyboard-hint {
-  width: var(--g-composer-width); padding: 0 4px; text-align: right;
-  color: var(--g-muted); font-size: 11.5px; line-height: 1.4;
-  opacity: 0; transition: opacity 0.15s;
+.opshelper-composer-footer {
+  width: var(--g-composer-width); padding: 0 4px 0 21px; display: flex; align-items: center;
+  justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  visibility: hidden; opacity: 0; transition: opacity 0.15s;
 }
-.opshelper-composer:focus-within .opshelper-composer-keyboard-hint { opacity: 1; }
+.opshelper-composer:focus-within .opshelper-composer-footer { visibility: visible; opacity: 1; }
+.opshelper-auto-approve {
+  display: inline-flex; align-items: center; gap: 5px; color: var(--g-muted);
+  font-size: 11.5px; line-height: 1.4; cursor: pointer;
+}
+.opshelper-auto-approve input { width: 14px; height: 14px; margin: 0; accent-color: var(--g-accent); cursor: pointer; }
+.opshelper-composer-keyboard-hint {
+  margin-left: auto; text-align: right;
+  color: var(--g-muted); font-size: 11.5px; line-height: 1.4;
+}
 .opshelper-composer-row:focus-within {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-accent) 20%, transparent), var(--g-shadow-card-hover);
 }
@@ -1273,13 +1291,14 @@
 .opshelper-attachment-error { color: #b3423a; }
 
 .opshelper-execution-stack { width: 100%; max-width: var(--g-read-w); }
-/* 协作过程固定在输入区上沿、分割线上方：与对话同一片底色，但属于不滚动的固定条；
-   默认只剩一行状态，展开的明细在条内滚动，不混进可滚动的对话正文。 */
+/* Collaboration summaries can be placed inline beneath the operation list for their turn. */
 .opshelper-collaboration-strip {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
   padding: 8px 24px 10px; background: transparent;
 }
-.opshelper-collaboration-bar { width: 100%; max-width: var(--g-read-w); color: var(--g-muted); }
+.opshelper-collaboration-bar { width: var(--g-composer-width); color: var(--g-muted); }
+.opshelper-collaboration-strip.inline { align-items: stretch; padding: 0; }
+.opshelper-collaboration-bar.inline { width: 100%; }
 .opshelper-collaboration-bar > summary {
   display: flex; align-items: center; gap: 7px; min-height: 30px;
   padding: 3px 8px; border: 1px solid var(--g-line-strong); border-radius: 10px;
@@ -1376,6 +1395,7 @@
   .opshelper-topbar { padding: 0 10px; gap: 8px; }
   .opshelper-conversation { padding: 12px 10px 10px; }
   .opshelper-msg { max-width: 100%; }
+  .opshelper-stage { --g-composer-width: 100%; }
   .opshelper-composer { padding: 8px 10px 10px; }
   .opshelper-msg-user .opshelper-bubble, .opshelper-msg-attachments { max-width: 90%; }
   .opshelper-operations-summary { align-items: flex-start; flex-wrap: wrap; }
@@ -1394,9 +1414,7 @@
   .opshelper-empty { margin-top: clamp(40px, 11vh, 100px); }
   .opshelper-empty-cards { width: min(100%, 320px); }
   .opshelper-composer-row { gap: 5px; padding: 6px 8px; }
-  .opshelper-composer-row,
-  .opshelper-composer-keyboard-hint,
-  .opshelper-attach-list { width: 100%; }
+  .opshelper-composer-footer { padding-left: 17px; }
   .opshelper-queue-hint,
   .opshelper-sending-hint {
     position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;

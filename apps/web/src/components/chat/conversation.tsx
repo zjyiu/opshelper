@@ -6,6 +6,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -13,9 +14,10 @@ import {
   type RefObject,
 } from "react";
 import { toast } from "sonner";
-import type { ExecutionSummary } from "@opshelper/shared";
+import type { ConversationCollaboration, ExecutionSummary } from "@opshelper/shared";
 
 import { AgentMark, type Assistant } from "./assistant";
+import { CollaborationBar } from "./collaboration-bar";
 import {
   describeOpencodeError,
   fileAttachments,
@@ -27,10 +29,12 @@ import {
 import { IconBranch, IconChevron, IconCopy, IconEdit, IconPaperclip, IconRetry, IconTool } from "./icons";
 import { ImagePreview, type PreviewImage } from "./image-preview";
 import { renderAssistantMarkdown } from "./markdown";
+import { guardMarkdownSelection } from "./markdown-selection";
 import type { ChatMessage, ChatPart } from "./message-model";
 import type { ConversationSurface } from "./conversation-surface";
 import {
   groupConversationTurns,
+  turnCollaborations,
   turnErrors,
   turnParts,
   type ConversationTurn,
@@ -91,6 +95,8 @@ export function Conversation({
   onRetryFrom,
   forkingMessageId,
   executions,
+  collaborations = [],
+  conversationId,
   reconnecting,
   onReconcile,
   readOnly = false,
@@ -106,6 +112,8 @@ export function Conversation({
   onRetryFrom?: (message: ChatMessage) => void;
   forkingMessageId: string | null;
   executions: ExecutionSummary[];
+  collaborations?: ConversationCollaboration[];
+  conversationId?: string | null;
   reconnecting: boolean;
   onReconcile: (executionId: string) => void;
 }) {
@@ -149,8 +157,8 @@ export function Conversation({
   // whole conversation. The session id flips before the messages load (they're
   // fetched async, and cleared to empty in between), so key the instant jump on
   // "history just populated for a session we haven't settled yet". A newly
-  // arriving reply is anchored at its beginning; short streamed replies keep
-  // following only while the user remains near the bottom.
+  // arriving reply is anchored at its beginning only when the user is following
+  // output; short streamed replies keep following while near the bottom.
   useLayoutEffect(() => {
     const justLoaded = settledSessionId.current !== sessionId && messages.length > 0;
     if (justLoaded) {
@@ -165,7 +173,7 @@ export function Conversation({
       latestReply && latestReply.key !== latestReplyIdRef.current,
     );
     latestReplyIdRef.current = latestReply?.key ?? null;
-    if (replyJustAppeared) {
+    if (replyJustAppeared && shouldFollowOutput.current) {
       latestReplyRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
       updateFollowOutput();
     } else if (shouldFollowOutput.current) {
@@ -216,6 +224,11 @@ export function Conversation({
       ref={conversationRef}
       className="opshelper-conversation"
       onScroll={updateFollowOutput}
+      onPointerDown={(event) => {
+        if (event.button === 0 && event.target instanceof Element && event.target.closest(".opshelper-markdown")) {
+          stopFollowingOutput();
+        }
+      }}
       onWheel={(event) => {
         if (event.deltaY < 0) shouldFollowOutput.current = false;
       }}
@@ -302,7 +315,7 @@ export function Conversation({
                 {partsText(message.parts).trim() ? (
                   <div className="opshelper-bubble">{partsText(message.parts)}</div>
                 ) : null}
-                {!readOnly ? <div className="opshelper-msg-actions">
+                <div className="opshelper-msg-actions">
                   <button
                     type="button"
                     className="opshelper-msg-action"
@@ -312,17 +325,19 @@ export function Conversation({
                   >
                     <IconCopy />
                   </button>
-                  <button
-                    type="button"
-                    className="opshelper-msg-action"
-                    onClick={() => setEditingMessage({ id: message.id, text: partsText(message.parts) })}
-                    disabled={busy || forkingMessageId !== null}
-                    title="编辑消息"
-                    aria-label="编辑消息"
-                  >
-                    <IconEdit />
-                  </button>
-                </div> : null}
+                  {!readOnly ? (
+                    <button
+                      type="button"
+                      className="opshelper-msg-action"
+                      onClick={() => setEditingMessage({ id: message.id, text: partsText(message.parts) })}
+                      disabled={busy || forkingMessageId !== null}
+                      title="编辑消息"
+                      aria-label="编辑消息"
+                    >
+                      <IconEdit />
+                    </button>
+                  ) : null}
+                </div>
               </>
             )}
           </div>
@@ -339,7 +354,10 @@ export function Conversation({
             retryMessage={precedingUserMessage}
             onRetry={onRetryFrom}
             onBranch={onRestartFrom}
-            actionsDisabled={readOnly || busy || forkingMessageId !== null}
+            actionsDisabled={busy || forkingMessageId !== null}
+            readOnly={readOnly}
+            collaborations={turnCollaborations(turn, collaborations)}
+            conversationId={conversationId}
           />
         );
       }) : null}
@@ -401,6 +419,9 @@ const AssistantTurn = memo(function AssistantTurn({
   onRetry,
   onBranch,
   actionsDisabled,
+  readOnly,
+  collaborations,
+  conversationId,
 }: {
   turn: ConversationTurn;
   agentKey: string;
@@ -413,6 +434,9 @@ const AssistantTurn = memo(function AssistantTurn({
   onRetry?: (message: ChatMessage) => void;
   onBranch: (message: ChatMessage) => void;
   actionsDisabled: boolean;
+  readOnly: boolean;
+  collaborations: ConversationCollaboration[];
+  conversationId?: string | null;
 }) {
   const parts = turnParts(turn);
   const visibleParts = parts.filter(partHasUserFacingContent);
@@ -435,6 +459,9 @@ const AssistantTurn = memo(function AssistantTurn({
             onInspect={onInspectOperations}
           />
         ) : null}
+        {collaborations.length > 0 ? (
+          <CollaborationBar collaborations={collaborations} conversationId={conversationId} inline />
+        ) : null}
         {visibleParts.map((part) => <PartView key={part.id} part={part} />)}
         {errors.map((error) => (
           <div className="opshelper-msg-error" role="alert" key={error}>
@@ -442,7 +469,7 @@ const AssistantTurn = memo(function AssistantTurn({
           </div>
         ))}
         {busy && hasContent && errors.length === 0 ? <StreamingIndicator /> : null}
-        {!busy && !actionsDisabled && (copyText || retryMessage) ? (
+        {!busy && !actionsDisabled && (copyText || (!readOnly && retryMessage)) ? (
           <div className="opshelper-assistant-actions">
             {copyText ? (
               <button
@@ -463,7 +490,7 @@ const AssistantTurn = memo(function AssistantTurn({
                 <IconCopy />
               </button>
             ) : null}
-            {retryMessage && onRetry ? (
+            {!readOnly && retryMessage && onRetry ? (
               <button
                 type="button"
                 className="opshelper-assistant-action"
@@ -474,7 +501,7 @@ const AssistantTurn = memo(function AssistantTurn({
                 <IconRetry />
               </button>
             ) : null}
-            {retryMessage ? (
+            {!readOnly && retryMessage ? (
               <button
                 type="button"
                 className="opshelper-assistant-action"
@@ -508,8 +535,25 @@ function StreamingIndicator() {
 
 const PartView = memo(function PartView({ part }: { part: ChatPart }) {
   const [preview, setPreview] = useState<PreviewImage | null>(null);
+  const [displayedText, setDisplayedText] = useState(part.text);
+  const markdownRef = useRef<HTMLDivElement>(null);
+  const guardRef = useRef<ReturnType<typeof guardMarkdownSelection> | null>(null);
+  // React compares the wrapper by identity and otherwise replaces the DOM, breaking text selection.
+  const markdownHtml = useMemo(() => ({ __html: renderAssistantMarkdown(displayedText) }), [displayedText]);
   const closePreview = useCallback(() => setPreview(null), []);
-  if (!part.text.trim()) return null;
+  useLayoutEffect(() => {
+    const element = markdownRef.current;
+    if (!element) return;
+    const guard = guardMarkdownSelection(element, displayedText, setDisplayedText);
+    guardRef.current = guard;
+    return () => {
+      guard.dispose();
+      guardRef.current = null;
+    };
+  }, []);
+  useLayoutEffect(() => {
+    guardRef.current?.update(part.text);
+  }, [part.text]);
   function openPreview(target: EventTarget | null) {
     if (!(target instanceof Element)) return false;
     const image = target.closest<HTMLImageElement>(".opshelper-markdown img");
@@ -553,10 +597,11 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
   return (
     <>
       <div
+        ref={markdownRef}
         className="opshelper-markdown"
         onClick={(event) => void copyCode(event)}
         onKeyDown={onKeyDown}
-        dangerouslySetInnerHTML={{ __html: renderAssistantMarkdown(part.text) }}
+        dangerouslySetInnerHTML={markdownHtml}
       />
       {preview ? <ImagePreview image={preview} onClose={closePreview} /> : null}
     </>

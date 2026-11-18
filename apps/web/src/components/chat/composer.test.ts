@@ -40,6 +40,44 @@ function composer({ composing = false, showMentions = false, canSend = true } = 
   };
 }
 
+test("the automatic approval checkbox reflects its controlled value and reports changes", () => {
+  let label: string | undefined;
+  function visit(node: ts.Node) {
+    if (ts.isJsxElement(node) && node.openingElement.attributes.properties.some((attribute) =>
+      ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "className" && attribute.initializer?.getText(source) === '"opshelper-auto-approve"')) {
+      label = node.getText(source);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.ok(label);
+  const code = ts.transpileModule(`globalThis.label = ${label};`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText;
+  for (const enabled of [false, true]) {
+    let updated: boolean | undefined;
+    const jsx = (type: unknown, props: unknown) => ({ type, props });
+    const context = vm.createContext({
+      exports: {},
+      require: () => ({ jsx, jsxs: jsx }),
+      autoApprovePermissions: enabled,
+      readOnly: false,
+      onAutoApprovePermissionsChange: (value: boolean) => { updated = value; },
+      autoApproveHintId: "authorization-hint",
+    });
+    vm.runInContext(code, context);
+    const checkbox = context.label.props.children[0];
+    assert.equal(checkbox.type, "input");
+    assert.equal(checkbox.props.type, "checkbox");
+    assert.equal(checkbox.props.checked, enabled);
+    assert.equal(checkbox.props["aria-describedby"], "authorization-hint");
+    assert.equal(context.label.props.children[1].props.children, "自动授权");
+    assert.match(context.label.props.title, /协作智能体的工具请求/);
+    checkbox.props.onChange({ target: { checked: !enabled } });
+    assert.equal(updated, !enabled);
+  }
+});
+
 for (const key of ["Enter", "Tab", "ArrowDown", "ArrowUp", "Escape"]) {
   test(`IME owns ${key} while composing, including when a file suggestion is visible`, () => {
     const input = composer({ composing: true, showMentions: true });

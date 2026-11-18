@@ -7,7 +7,7 @@
 1. 部署包含外部对话接口的版本，应用数据库迁移并更新 nginx 配置。部署方法见[源码安装与更新](deployment.md)或[离线部署文档](offline-amd64.md)。
 2. 确认目标用户已启用，已分配可作为主智能体的智能体，用户运行环境配置已就绪，且模型可用。
 3. 通过 HTTPS 访问 opshelper 入口。下文用 `https://opshelper.example.com` 作为示例地址，实际调用时替换为部署地址。
-4. 由目标用户登录并创建自己的 API Token，再通过安全渠道交给调用方。一个 Token 只对应一个用户，不能在请求中切换用户。
+4. 由目标用户登录，在聊天侧栏底部的用户菜单选择“API Token”，创建并复制自己的 Token，再通过安全渠道交给调用方；也可以按第 3 节使用接口创建。一个 Token 只对应一个用户，不能在请求中切换用户。
 
 所有 JSON 请求使用 `Content-Type: application/json`。本文的 `<...>` 均为占位符，不是实际凭证或 ID。
 
@@ -130,8 +130,12 @@ Content-Type: application/json
 | `agentKey` | 是 | 用户已分配、启用、检查就绪且可担任主智能体的 key；以小写字母开头，之后为小写字母、数字或 `-`，最多 64 个字符 |
 | `text` | 是 | 非空文本，去除首尾空白后最多 100,000 个字符 |
 | `conversationId` | 否 | 本用户已有会话 ID，长度 1～128；不传则新建会话 |
+| `autoApprovePermissions` | 否 | 布尔值，默认 `false`；为本次执行的主智能体及子智能体工具请求自动选择“允许一次” |
+| `stream` | 否 | 布尔值，默认 `false`；设为 `true` 时以 SSE 流式返回，见第 4.4 节 |
 
-请求不接受额外字段。本接口当前不支持传入附件、指定模型、自动授权或流式输出；使用平台默认模型，工具授权和智能体提问仍需在工作台处理。执行进入该用户自己的队列，同一用户已有任务时可能需要排队。
+请求不接受额外字段。本接口不支持传入附件或指定模型，使用平台默认模型。执行进入该用户自己的队列，同一用户已有任务时可能需要排队。
+
+自动授权只作用于本次执行，不建立永久允许规则；智能体提问、自动处理失败的授权仍需登录工作台处理。开启后可能自动允许修改文件、执行命令或访问外部资源，仅应在调用方可信且任务范围已确认时使用。
 
 ### 4.1 已完成：HTTP 200
 
@@ -171,6 +175,45 @@ Content-Type: application/json
 
 只能使用该用户自己的会话；已归档的本人会话也可以继续使用。每次 POST 都产生新的执行。
 
+### 4.4 流式输出
+
+请求中设置 `"stream": true`，可同时设置 `"autoApprovePermissions": true`：
+
+```http
+POST /v1/integration/chat HTTP/1.1
+Host: opshelper.example.com
+Authorization: Bearer <API Token>
+Content-Type: application/json
+Accept: text/event-stream
+
+{"agentKey":"network-ops","text":"请分析问题","stream":true,"autoApprovePermissions":true}
+```
+
+流建立前的认证或参数错误仍返回普通 HTTP 错误和 JSON。任务受理后 HTTP 200、`Content-Type: text/event-stream`，响应依次包含 SSE 帧（每帧以空行结束，`data` 为 JSON）：
+
+```text
+event: accepted
+data: {"conversationId":"<会话ID>","executionId":"<执行ID>"}
+
+event: text
+data: {"messageId":"<消息标识>","partId":"text:0","chunkId":1,"delta":"新增正文"}
+
+event: operation
+data: {"id":"operation-1","label":"读取文件","target":"README.md","status":"running"}
+
+event: result
+data: {"conversationId":"<会话ID>","executionId":"<执行ID>","status":"succeeded","httpStatus":200}
+
+```
+
+- 收到 `accepted` 后立即保存两个 ID。排队、运行状态通过最终 `result.status` 或第 5 节查询接口获取，流中不逐次发送状态轮询帧。
+- `text` 只包含本次执行的主会话可展示文本，不含推理或子智能体正文。同一次执行中的助手文本共用一个 `messageId`；每个文本块有独立的 `partId`（如 `text:0`、`text:1`），不同执行会生成不同的 `messageId`。`chunkId` 从 `1` 开始，针对每组 `messageId` 与 `partId` 单独递增。相同组的 `delta` 是新增正文，按 `chunkId` 顺序追加；如收到 `text_replace`，按其递增的 `chunkId` 用 `text` 替换对应文本块。文本可能包括工具调用前的简短说明。
+- `operation` 是本次执行的工具操作摘要，包含稳定的操作 `id`、概括性 `label`、可选 `target` 和 `status`；命令类操作的 `target` 会返回命令内容，最多 160 个字符，超长部分以 `…` 截断。相同 ID 的后续事件表示状态更新。它不包含工具输出或模型推理。
+- 流式 `result` 只返回执行状态和 `httpStatus`，不重复包含最终回答；回答正文由 `text` 增量组成。`httpStatus` 对应第 5 节查询接口的状态码；`409` 表示需要在工作台处理交互，`502` 表示失败或无文本，`503` 表示结果暂不可读。状态读取期间如果交互已被处理，也可能返回 `202`；`404` 表示执行不存在或无法访问。收到 `result` 后流关闭；尚未完成、处理交互或暂不可读时使用执行查询继续获取结果。
+- 流中断或状态读取出错会尽可能发送 `event: error`，包含 `conversationId`、`executionId` 和 `message`，然后关闭；HTTP 200 本身不代表任务成功。连接意外中断时也可能收不到 `error` 或 `result`。
+- 空闲连接约每 15 秒发送一次以 `:` 开头的 SSE 心跳注释。流没有 45 秒等待上限，排队和运行期间保持连接；断开连接不会取消执行。该 POST 不支持 SSE 自动重连或事件重放：有执行 ID 时改用第 5 节查询，不要重新 POST。
+- 服务端须使用包含本功能的 API 镜像和更新后的 nginx 配置；其他代理也须关闭 SSE 响应缓冲并允许长连接。
+
 ## 5. 查询执行结果
 
 ```http
@@ -185,7 +228,7 @@ Authorization: Bearer <API Token>
 | --- | --- | --- |
 | 200 | `succeeded` | 已完成，读取 `answer` |
 | 202 | `queued`、`dispatching`、`running` | 尚未完成；等待后再次查询，建议间隔数秒 |
-| 409 | `waiting_input` | 智能体正在等待用户回答或工具授权；登录工作台处理后继续查询。接口不会自动授权，也没有交互回复功能 |
+| 409 | `waiting_input` | 智能体正在等待用户回答或未处理的工具授权；登录工作台处理后继续查询。接口没有交互回复功能 |
 | 502 | `failed`、`cancelled`、`interrupted` | 执行失败、取消或状态无法确认；查看 `message`，必要时在工作台核对 |
 | 502 | `succeeded` | 执行完成但没有可展示的文本回答；查看 `message` |
 | 503 | `succeeded` | 执行完成但暂时无法读取回答；稍后重试查询 |
@@ -240,6 +283,16 @@ printf 'header = "Authorization: Bearer %s"\n' "$OPSHELPER_API_TOKEN" |
   curl --config - --silent --show-error --max-time 30 \
     --write-out '\nHTTP status: %{http_code}\n' \
     "$BASE_URL/v1/integration/executions/$EXECUTION_ID"
+```
+
+流式调用可用 `curl --no-buffer` 实时读取 SSE：
+
+```bash
+printf 'header = "Authorization: Bearer %s"\n' "$OPSHELPER_API_TOKEN" |
+  curl --config - --no-buffer --silent --show-error \
+    -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+    --data '{"agentKey":"network-ops","text":"请分析问题","stream":true,"autoApprovePermissions":true}' \
+    "$BASE_URL/v1/integration/chat"
 ```
 
 使用完毕后可执行 `unset OPSHELPER_API_TOKEN`。示例不自动重试 POST；如需生产集成，应妥善处理上述各类状态及连接中断。

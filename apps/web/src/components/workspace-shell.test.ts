@@ -100,6 +100,7 @@ function workspace(
     updateOptimisticMessages: noop,
     createClientId: () => "attachment-id",
     navigationGenerationRef: { current: 0 },
+    homeRefreshSequenceRef: { current: 0 },
     activeConversationRef: { current: state.conversation },
     activeAgentKeyRef: { current: state.agent },
     setActiveConversationId: (id: string | null) => {
@@ -230,6 +231,21 @@ test("a non-activating refresh updates the list without opening a conversation o
   assert.equal(provider.state.conversation, null);
   assert.equal(provider.state.agent, "agent-b");
   assert.equal(provider.state.url, url);
+});
+
+test("an older home refresh cannot overwrite the latest agent and conversation list", async () => {
+  const first = deferred<typeof home>();
+  const second = deferred<typeof home>();
+  let calls = 0;
+  const provider = workspace(() => ++calls === 1 ? first.promise : second.promise);
+  const older = provider.refreshHome(undefined, { activate: false });
+  const newer = provider.refreshHome(undefined, { activate: false });
+  const updated = { ...home, conversations: [other] };
+  second.resolve(updated);
+  await newer;
+  first.resolve(home);
+  await older;
+  assert.equal(provider.state.conversations, updated.conversations);
 });
 
 for (const destination of ["new", "other", "source"] as const) {

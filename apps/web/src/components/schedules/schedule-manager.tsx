@@ -17,6 +17,7 @@ import { formatShanghaiDateTime } from "@opshelper/shared";
 import {
   createSchedule,
   deleteSchedule,
+  getChatModels,
   getSchedule,
   getScheduleRunAnswer,
   listSchedules,
@@ -30,6 +31,7 @@ import { guessMime } from "@/components/chat/format";
 import { renderAssistantMarkdown } from "@/components/chat/markdown";
 import { IconClock, IconPlus } from "@/components/chat/icons";
 import { confirm as confirmDialog } from "@/components/ui/dialog-host";
+import { usePageRefresh } from "@/components/navigation-refresh";
 
 export const SCHEDULE_DRAFT_KEY = "opshelper:schedule-draft";
 
@@ -203,6 +205,7 @@ export function ScheduleManager({
   defaultModel: string;
 }) {
   const [agents, setAgents] = useState<ConversationAgent[]>([]);
+  const [availableModels, setAvailableModels] = useState(models);
   const [schedules, setSchedules] = useState<ScheduleSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ScheduleDetailResponse | null>(null);
@@ -211,47 +214,72 @@ export function ScheduleManager({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [openRunId, setOpenRunId] = useState<string | null>(null);
+  const selectedIdRef = useRef(selectedId);
+  const refreshSequence = useRef(0);
+  const refreshInFlight = useRef(0);
+  selectedIdRef.current = selectedId;
 
   const refresh = useCallback(async (preferredId?: string | null, quiet = false) => {
+    const sequence = ++refreshSequence.current;
+    refreshInFlight.current += 1;
+    if (preferredId !== undefined) {
+      selectedIdRef.current = preferredId;
+      setSelectedId(preferredId);
+    }
     try {
       const home = await listSchedules();
+      if (sequence !== refreshSequence.current) return null;
       setAgents(home.agents);
       setSchedules(home.schedules);
       const nextId = preferredId === undefined
-        ? selectedId ?? home.schedules[0]?.id ?? null
+        ? selectedIdRef.current ?? home.schedules[0]?.id ?? null
         : preferredId;
+      selectedIdRef.current = nextId;
       setSelectedId(nextId);
-      if (nextId) setDetail(await getSchedule(nextId));
+      if (nextId) {
+        const nextDetail = await getSchedule(nextId);
+        if (sequence !== refreshSequence.current) return null;
+        setDetail(nextDetail);
+      }
       else setDetail(null);
       if (!quiet) setNotice(null);
       return home;
     } catch (error) {
-      setNotice({ tone: "error", text: error instanceof Error ? error.message : "定时任务加载失败" });
+      if (sequence === refreshSequence.current) {
+        setNotice({ tone: "error", text: error instanceof Error ? error.message : "定时任务加载失败" });
+      }
       return null;
     } finally {
-      if (!quiet) setLoading(false);
+      refreshInFlight.current -= 1;
+      if (sequence === refreshSequence.current) setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
+
+  const restoreDraft = useCallback((home: Awaited<ReturnType<typeof listSchedules>> | null) => {
+    if (!home) return;
+    try {
+      const raw = sessionStorage.getItem(SCHEDULE_DRAFT_KEY);
+      if (!raw) return;
+      sessionStorage.removeItem(SCHEDULE_DRAFT_KEY);
+      const draft = JSON.parse(raw) as Partial<FormState>;
+      setForm({ ...emptyForm(home.agents, defaultModel), ...draft, id: null });
+    } catch {
+      // Ignore malformed browser state.
+    }
+  }, [defaultModel]);
 
   useEffect(() => {
-    void refresh().then((home) => {
-      if (!home) return;
-      try {
-        const raw = sessionStorage.getItem(SCHEDULE_DRAFT_KEY);
-        if (!raw) return;
-        sessionStorage.removeItem(SCHEDULE_DRAFT_KEY);
-        const draft = JSON.parse(raw) as Partial<FormState>;
-        setForm({ ...emptyForm(home.agents, defaultModel), ...draft, id: null });
-      } catch {
-        // Ignore malformed browser state.
-      }
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    void refresh().then(restoreDraft);
+  }, [refresh, restoreDraft]);
 
   useEffect(() => {
-    const timer = setInterval(() => void refresh(undefined, true), 5000);
+    const timer = setInterval(() => {
+      if (!refreshInFlight.current) void refresh(undefined, true).then(restoreDraft);
+    }, 5000);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, restoreDraft]);
+
+  usePageRefresh(() => { void refresh(undefined, true).then(restoreDraft); });
 
   // 切换任务时关闭结果弹窗，避免切回原任务时弹窗自行重现。
   useEffect(() => { setOpenRunId(null); }, [selectedId]);
@@ -286,6 +314,43 @@ export function ScheduleManager({
       setNotice({ tone: "success", text: success });
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "操作失败" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createForm = async () => {
+    setBusy(true);
+    const sequence = ++refreshSequence.current;
+    try {
+      const [home, modelSettings] = await Promise.all([listSchedules(), getChatModels()]);
+      if (sequence === refreshSequence.current) {
+        setAgents(home.agents);
+        setSchedules(home.schedules);
+      }
+      setAvailableModels(modelSettings.models);
+      if (!home.agents.some((agent) => agent.mode !== "subagent")) {
+        setNotice({ tone: "error", text: "当前没有可用的主智能体，无法新建任务" });
+        return;
+      }
+      setForm(emptyForm(home.agents, modelSettings.defaultModel));
+    } catch (error) {
+      setNotice({ tone: "error", text: error instanceof Error ? error.message : "读取任务配置失败" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const editForm = async (id: string) => {
+    setBusy(true);
+    try {
+      const [snapshot, modelSettings] = await Promise.all([getSchedule(id), getChatModels()]);
+      if (selectedIdRef.current !== id) return;
+      setDetail(snapshot);
+      setAvailableModels(modelSettings.models);
+      setForm(scheduleForm(snapshot.schedule));
+    } catch (error) {
+      setNotice({ tone: "error", text: error instanceof Error ? error.message : "读取任务配置失败" });
     } finally {
       setBusy(false);
     }
@@ -364,7 +429,7 @@ export function ScheduleManager({
               ) : selected.status === "paused" ? (
                 <button className="button-secondary" disabled={busy || !selected.canResume} onClick={() => void act(() => resumeSchedule(selected.id), "任务已恢复")}>恢复</button>
               ) : null}
-              <button className="button-secondary" disabled={busy} onClick={() => setForm(scheduleForm(selected))}>编辑</button>
+              <button className="button-secondary" disabled={busy} onClick={() => void editForm(selected.id)}>编辑</button>
               <button className="button-danger" disabled={busy} onClick={() => void deleteSelectedSchedule(selected)}>删除</button>
             </div>
             <div className="schedule-section-label">任务说明</div>
@@ -412,8 +477,8 @@ export function ScheduleManager({
             <button
               className="button"
               type="button"
-              disabled={agents.length === 0 || loading}
-              onClick={() => setForm(emptyForm(agents, defaultModel))}
+              disabled={loading || busy}
+              onClick={() => void createForm()}
             >
               <IconPlus />新建任务
             </button>
@@ -451,8 +516,8 @@ export function ScheduleManager({
                 <button
                   className="button"
                   type="button"
-                  disabled={agents.length === 0}
-                  onClick={() => setForm(emptyForm(agents, defaultModel))}
+                  disabled={busy}
+                  onClick={() => void createForm()}
                 >
                   <IconPlus />新建定时任务
                 </button>
@@ -514,7 +579,7 @@ export function ScheduleManager({
           setForm={setForm}
           agents={leadAgents}
           otherAgents={otherAgents}
-          models={models}
+          models={availableModels}
           busy={busy}
           onSave={() => void save()}
           onClose={() => setForm(null)}

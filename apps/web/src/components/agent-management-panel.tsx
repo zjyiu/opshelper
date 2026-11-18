@@ -57,6 +57,8 @@ import {
 } from "@/components/file-icons";
 import { SkillDetailModal } from "@/components/skill-detail-modal";
 import { IconAlert, IconCheck, IconClose, IconSearch, IconSkill } from "@/components/chat/icons";
+import { usePageRefresh } from "@/components/navigation-refresh";
+import { insertEditorIndent } from "@/components/agent-editor-keys";
 
 type Tab = "catalog" | "assignments" | "models" | "instructions";
 type EditorMode = "view" | "create" | "edit";
@@ -244,6 +246,7 @@ export function AgentManagementPanel({
   const adminScope = scope === "admin";
   const [tab, setTab] = useState<Tab>("catalog");
   const [agents, setAgents] = useState(initialAgents);
+  const catalogRefreshRef = useRef(0);
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detail, setDetail] = useState<AgentDetail | null>(null);
@@ -259,6 +262,11 @@ export function AgentManagementPanel({
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const skillUploadRef = useRef<HTMLInputElement>(null);
   const [newFilePath, setNewFilePath] = useState("");
+  const automaticCreateRef = useRef(!initialCreate && initialAgents.length === 0);
+  const pristineCreateRef = useRef(true);
+  pristineCreateRef.current = editorMode === "create" && !agentKey && !newFilePath &&
+    Object.keys(files).length === 1 && files["agent.md"] === NEW_AGENT_TEMPLATE &&
+    Object.keys(binaryFiles).length === 0;
   const [busy, setBusy] = useState(false);
   const [skillRepositoryOpen, setSkillRepositoryOpen] = useState(false);
   const [repositoryBusy, setRepositoryBusy] = useState(false);
@@ -362,7 +370,9 @@ export function AgentManagementPanel({
   }
 
   async function refreshAgents(preferredKey?: string | null) {
+    const sequence = ++catalogRefreshRef.current;
     const snapshot = await listAgents(scope);
+    if (sequence !== catalogRefreshRef.current) return;
     setAgents(snapshot.agents);
     if (preferredKey === null) {
       setSelectedKey(null);
@@ -375,6 +385,26 @@ export function AgentManagementPanel({
       setSelectedKey(snapshot.agents[0]?.key ?? null);
     }
   }
+
+  async function refreshCatalog() {
+    const sequence = ++catalogRefreshRef.current;
+    const snapshot = await listAgents(scope);
+    if (sequence !== catalogRefreshRef.current) return;
+    setAgents(snapshot.agents);
+    if (automaticCreateRef.current && pristineCreateRef.current && snapshot.agents.length > 0) {
+      automaticCreateRef.current = false;
+      setEditorMode("view");
+    }
+  }
+
+  useEffect(() => {
+    void refreshCatalog().catch((error) => toast.error(errorMessage(error, "刷新智能体目录失败")));
+    return () => { catalogRefreshRef.current += 1; };
+  }, [scope]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  usePageRefresh(() => {
+    void refreshCatalog().catch((error) => toast.error(errorMessage(error, "刷新智能体目录失败")));
+  });
 
   useEffect(() => {
     if (!selectedKey || editorMode === "create") {
@@ -411,6 +441,7 @@ export function AgentManagementPanel({
   }, [adminScope, selectedUserId, tab]);
 
   function beginCreate() {
+    automaticCreateRef.current = false;
     setEditorMode("create");
     setSkillRepositoryOpen(false);
     setSelectedKey(null);
@@ -435,6 +466,7 @@ export function AgentManagementPanel({
     setDetail(null);
     setEditorMode("view");
     restoreCatalogScroll();
+    void refreshCatalog().catch((error) => toast.error(errorMessage(error, "刷新智能体目录失败")));
   }
 
   function addSupportingFile() {
@@ -754,7 +786,10 @@ export function AgentManagementPanel({
     <div className="agent-admin">
       {adminScope ? (
         <div className="agent-admin-tabs" role="tablist" aria-label="智能体管理">
-          <button className={tab === "catalog" ? "active" : ""} type="button" onClick={() => setTab("catalog")}>智能体目录</button>
+          <button className={tab === "catalog" ? "active" : ""} type="button" onClick={() => {
+            setTab("catalog");
+            void refreshCatalog().catch((error) => toast.error(errorMessage(error, "刷新智能体目录失败")));
+          }}>智能体目录</button>
           <button className={tab === "assignments" ? "active" : ""} type="button" onClick={() => setTab("assignments")}>用户分配</button>
           <button className={tab === "models" ? "active" : ""} type="button" onClick={() => setTab("models")}>模型连接</button>
           <button className={tab === "instructions" ? "active" : ""} type="button" onClick={() => setTab("instructions")}>全局规则</button>
@@ -1198,6 +1233,14 @@ export function AgentManagementPanel({
                               aria-label={`编辑 ${selectedFile}`}
                               value={files[selectedFile] ?? ""}
                               onChange={(event) => setFiles((current) => ({ ...current, [selectedFile]: event.target.value }))}
+                              onKeyDown={(event) => {
+                                if (event.key !== "Tab") return;
+                                event.preventDefault();
+                                const target = event.currentTarget;
+                                const result = insertEditorIndent(target.value, target.selectionStart, target.selectionEnd);
+                                setFiles((current) => ({ ...current, [selectedFile]: result.value }));
+                                requestAnimationFrame(() => target.setSelectionRange(result.selectionStart, result.selectionEnd));
+                              }}
                               spellCheck={false}
                             />
                           )}

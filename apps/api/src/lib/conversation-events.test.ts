@@ -48,6 +48,21 @@ test("跨会话、用户提示和reasoning不进入正文事件", () => {
   })), []);
 });
 
+test("执行范围未确认时缓存正文，确认后只释放属于该执行的消息", () => {
+  const allowed = new Set<string>();
+  const projector = new ConversationTextProjector(sessionID, [], 10, (id) => allowed.has(id));
+  projector.apply(info());
+  projector.apply(part());
+  assert.deepEqual(projector.apply(delta("当前回答")), []);
+  projector.seed([{
+    info: { id: "old", sessionID, role: "assistant", time: { completed: 30 } },
+    parts: [{ id: "old-part", type: "text", text: "历史回答", time: { end: 30 } }],
+  }]);
+  allowed.add(messageID);
+  assert.deepEqual(projector.textEvents(), [{ messageId: messageID, partId: partID, text: "当前回答" }]);
+  assert.deepEqual(projector.textEvents(), []);
+});
+
 test("连接建立期间已持久化的全文不被缓冲增量重复追加", () => {
   const projector = new ConversationTextProjector(sessionID, [], 10);
   projector.seed([{

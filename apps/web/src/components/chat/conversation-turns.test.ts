@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { groupConversationTurns, turnErrors, turnParts } from "./conversation-turns";
+import { groupConversationTurns, turnCollaborations, turnErrors, turnParts } from "./conversation-turns";
 import type { ChatMessage } from "./message-model";
 
 function message(id: string, role: ChatMessage["role"], type: string, text = ""): ChatMessage {
@@ -47,4 +47,19 @@ test("助手消息错误随合并后的回答轮保留", () => {
   second.error = "回答失败";
   const [turn] = groupConversationTurns([first, second]);
   assert.deepEqual(turnErrors(turn), [{ message: "工具失败" }, "回答失败"]);
+});
+
+test("协作摘要只归属到发起该协作的助手轮次", () => {
+  const [first, second] = groupConversationTurns([
+    message("assistant-1", "assistant", "tool"),
+    message("assistant-2", "assistant", "text", "完成"),
+    message("user-1", "user", "text", "继续"),
+    message("assistant-3", "assistant", "text", "后续"),
+  ]).filter((turn) => turn.role === "assistant");
+  const collaborations = [
+    { traceId: "trace-1", parentMessageId: "assistant-1", agentKey: "network", title: "查询", status: "completed", summary: null },
+    { traceId: "trace-2", parentMessageId: "assistant-3", agentKey: "system", title: "检查", status: "running", summary: null },
+  ] as const;
+  assert.deepEqual(turnCollaborations(first, [...collaborations]), [collaborations[0]]);
+  assert.deepEqual(turnCollaborations(second, [...collaborations]), [collaborations[1]]);
 });

@@ -50,14 +50,27 @@ test("reasoning and tools do not change text identities between V2 snapshots and
   ] }], "s");
   const projector = new ConversationTextProjector("s", [], 0);
   const seeded = projector.seed(messages);
-  assert.deepEqual(seeded.map((part) => part.partId), ["a:text:0", "a:text:1"]);
+  assert.deepEqual(seeded.map((part) => part.partId), ["text:0", "text:1"]);
+  assert.ok(seeded.every((part) => part.messageId !== part.partId));
   for (const [ordinal, text] of ["first", "second"].entries()) {
     assert.deepEqual(projector.apply(normalizeV2Event({ type: "session.text.ended", created: 2,
       data: { sessionID: "s", assistantMessageID: "a", ordinal, text } })), []);
   }
+  assert.equal(normalizeV2Event({ type: "session.text.delta", data: {
+    sessionID: "s", assistantMessageID: "a", ordinal: 1, delta: "second",
+  } }).properties.partID, "text:1");
   const tool = messages[0].parts.find((part: any) => part.type === "tool");
   assert.equal(tool.state.output, undefined);
   assert.equal(tool.state.error, "File not found");
+});
+
+test("V2 subagent metadata retains both supported child session ID spellings", () => {
+  for (const metadata of [{ sessionID: "child" }, { sessionId: "child" }]) {
+    const messages = normalizeV2Messages([{ id: "a", type: "assistant", time: { created: 1 }, content: [
+      { id: "task", type: "tool", name: "subagent", state: { status: "completed", metadata } },
+    ] }], "root");
+    assert.equal(messages[0].parts[0].state.metadata.sessionId, "child");
+  }
 });
 
 test("V2 pagination follows cursors until empty without duplicating records", async () => {

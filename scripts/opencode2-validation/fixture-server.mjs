@@ -45,6 +45,10 @@ const server = http.createServer(async (req, res) => {
     let text = "E2E_BASIC_OK 中文流式输出完成";
     if (!tools.length) {
       if (prompt.includes("E2E_FORBIDDEN")) call = ["subagent", { description: "Forbidden primary", agent: "fixture-lead", prompt: "E2E_SUB_READ" }];
+      else if (prompt.includes("E2E_NESTED_CHILD_PERMISSION")) call = ["subagent", { description: "Nested permission", agent: "fixture-sub", prompt: "E2E_NESTED_PERMISSION_MID" }];
+      else if (prompt.includes("E2E_NESTED_PERMISSION_MID")) call = ["subagent", { description: "Leaf permission", agent: "fixture-leaf", prompt: "E2E_CHILD_READ_PERMISSION" }];
+      else if (prompt.includes("E2E_CHILD_PERMISSION")) call = ["subagent", { description: "Child permission", agent: "fixture-sub", prompt: "E2E_CHILD_READ_PERMISSION" }];
+      else if (prompt.includes("E2E_CHILD_READ_PERMISSION")) call = ["read", { path: "/etc/hosts" }];
       else if (prompt.includes("E2E_NESTED_MID")) call = ["subagent", { description: "Nested fixture", agent: "fixture-leaf", prompt: "E2E_SUB_READ" }];
       else if (prompt.includes("E2E_NESTED")) call = ["subagent", { description: "Nested fixture", agent: "fixture-sub", prompt: "E2E_NESTED_MID" }];
       else if (prompt.includes("E2E_COLLAB")) call = ["subagent", { description: "Fixture read", agent: "fixture-sub", prompt: "E2E_SUB_READ" }];
@@ -64,6 +68,8 @@ const server = http.createServer(async (req, res) => {
     if (tools.length) {
       const outputs = JSON.stringify(tools.map((item) => item.content));
       if (prompt.includes("E2E_FORBIDDEN")) text = outputs.includes("FIXTURE_CONTENT_OK") ? "E2E_UNAUTHORIZED" : "E2E_FORBIDDEN_OK";
+      else if (prompt.includes("E2E_CHILD_PERMISSION") || prompt.includes("E2E_NESTED_CHILD_PERMISSION") || prompt.includes("E2E_NESTED_PERMISSION_MID")) text = outputs.includes("CHILD_PERMISSION_OK") ? "CHILD_PERMISSION_OK" : "E2E_TOOL_FAILED";
+      else if (prompt.includes("E2E_CHILD_READ_PERMISSION")) text = outputs.includes("localhost") ? "CHILD_PERMISSION_OK" : "E2E_TOOL_FAILED";
       else if (prompt.includes("E2E_NESTED")) text = outputs.includes("FIXTURE_CONTENT_OK") ? "E2E_NESTED_OK FIXTURE_CONTENT_OK" : "E2E_TOOL_FAILED";
       else if (prompt.includes("E2E_COLLAB") || prompt.includes("E2E_SUB_READ")) text = outputs.includes("FIXTURE_CONTENT_OK") ? "E2E_COLLAB_OK FIXTURE_CONTENT_OK" : "E2E_TOOL_FAILED";
       else if (prompt.includes("E2E_MCP")) text = outputs.includes("MCP_UPGRADE_OK") ? "MCP_UPGRADE_OK" : "E2E_TOOL_FAILED";
@@ -75,6 +81,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (prompt.includes("E2E_ATTACHMENT") && attachmentVisible) text = "ATTACHMENT_UPGRADE_OK";
     if (prompt.includes("E2E_SCHEDULE")) text = "SCHEDULE_UPGRADE_OK";
+    if (prompt.includes("E2E_INTEGRATION_STREAM")) text = "STREAM_ALPHA_BETA_GAMMA_DELTA_完成";
     if (prompt.includes("E2E_CONTINUE")) text = JSON.stringify(messages).includes("E2E_BASIC_OK") ? "HISTORY_CONTINUE_OK" : "E2E_HISTORY_FAILED";
     if (prompt.includes("E2E_FORK_VERIFY")) {
       const history = JSON.stringify(messages.slice(0, lastUserIndex));
@@ -103,7 +110,7 @@ const server = http.createServer(async (req, res) => {
       for (const part of text.match(/.{1,4}/gu) ?? []) {
         if (res.destroyed) break;
         send(chunk({ content: part }));
-        await new Promise((resolve) => setTimeout(resolve, 35));
+        await new Promise((resolve) => setTimeout(resolve, prompt.includes("E2E_INTEGRATION_STREAM") ? 400 : 35));
       }
       send(chunk({}, "stop"));
     }

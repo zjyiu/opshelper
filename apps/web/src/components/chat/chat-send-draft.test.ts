@@ -3,20 +3,23 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import { moveConversationAuthorization } from "./conversation-authorization";
 import { conversationDraftKey, EMPTY_DRAFT, moveConversationDraft, updateConversationDraft, parseConversationDrafts, serializeConversationDrafts, type ConversationDrafts } from "./conversation-drafts";
 import type { Attachment } from "./types";
 
 const source = ts.createSourceFile("chat-app.tsx", readFileSync(new URL("./chat-app.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 let initializer: string | undefined;
 let recoveryInitializer: string | undefined;
+let signatureFunction: string | undefined;
 function visit(node: ts.Node) {
   if (ts.isVariableDeclaration(node) && node.name.getText(source) === "send") initializer = node.initializer?.getText(source);
   if (ts.isVariableDeclaration(node) && node.name.getText(source) === "restoreFailedDraft") recoveryInitializer = node.initializer?.getText(source);
+  if (ts.isFunctionDeclaration(node) && node.name?.text === "requestSignature") signatureFunction = node.getText(source);
   ts.forEachChild(node, visit);
 }
 visit(source);
 assert.ok(initializer);
-const callback = ts.transpileModule(`globalThis.send = ${initializer};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const callback = ts.transpileModule(`globalThis.makeSend = (autoApprovePermissions) => ${initializer};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -28,7 +31,7 @@ function deferred<T>() {
 function chat(
   conversationId: string | null,
   createConversation: () => Promise<{ conversationId: string }>,
-  createExecution: () => Promise<unknown>,
+  createExecution: (...args: unknown[]) => Promise<unknown>,
   navigating = false,
   attachments: Attachment[] = [],
 ) {
@@ -38,9 +41,11 @@ function chat(
       [key]: { input: "original message", attachments },
       "conversation:b": { input: "B draft", attachments: [] },
     } as ConversationDrafts,
+    authorizations: {} as Record<string, boolean>,
     activated: [] as string[],
     urls: [] as string[],
     refreshes: [] as unknown[],
+    signatures: [] as unknown[],
     notice: null as string | null,
     toast: null as string | null,
   };
@@ -65,15 +70,25 @@ function chat(
     updateDraft,
     setDraft: (key: string, draft: ConversationDrafts[string]) => updateDraft(key, () => draft),
     moveDraft: (from: string, to: string) => { state.drafts = moveConversationDraft(state.drafts, from, to); },
+    moveAuthorization: (from: string, to: string) => {
+      state.authorizations = moveConversationAuthorization(state.authorizations, from, to);
+    },
+    setAuthorization: (key: string, enabled: boolean) => { state.authorizations[key] = enabled; },
     setSending: noop, setNotice: (value: string | null) => { state.notice = value; },
-    createConversation, createExecution, model: "", autoApprovePermissions: false,
+    createConversation, createExecution, model: "",
     activateConversation: (id: string) => { state.activated.push(id); },
     router: { replace: (url: string) => { state.urls.push(url); } },
-    requestSignature: () => "request", waitForStreamReady: async () => {},
+    requestSignature: (...args: unknown[]) => { state.signatures.push(args[5]); return context.actualRequestSignature(...args); },
+    waitForStreamReady: async () => {},
     refreshHome: async (id: string, options: unknown) => { state.refreshes.push({ id, options }); },
     refreshConversation: async () => {}, toast: { error: (value: string) => { state.toast = value; } },
   });
+  assert.ok(signatureFunction);
+  vm.runInContext(ts.transpileModule(signatureFunction.replace("function requestSignature(", "function actualRequestSignature("), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText, context);
   vm.runInContext(callback, context);
+  let send = context.makeSend(true) as () => Promise<void>;
   assert.ok(recoveryInitializer);
   vm.runInContext(ts.transpileModule(`globalThis.restoreFailedDraft = ${recoveryInitializer};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
   return {
@@ -84,10 +99,93 @@ function chat(
       context.attachments = state.drafts[key]?.attachments ?? [];
       context.restoreFailedDraft(recoveryKey);
     },
-    send: context.send as () => Promise<void>,
+    send: () => send(),
+    setAutoApprove: (enabled: boolean) => {
+      state.authorizations[key] = enabled;
+      send = context.makeSend(enabled);
+    },
     navigate: (id: string | null) => { activeConversationRef.current = id; conversationGenerationRef.current += 1; },
   };
 }
+
+test("automatic permission approval defaults on and follows the selection for subsequent sends", async () => {
+  const requests: unknown[] = [];
+  const input = chat("a", async () => ({ conversationId: "created" }), async (_id, request) => { requests.push(request); });
+  await input.send();
+  input.setAutoApprove(false);
+  await input.send();
+  input.setAutoApprove(true);
+  await input.send();
+  assert.deepEqual(input.state.signatures, [true, false, true]);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [
+    { requestKey: "client-2", leadAgentKey: "ops", text: "original message", attachments: [], autoApprovePermissions: true },
+    { requestKey: "client-4", leadAgentKey: "ops", text: "original message", attachments: [], autoApprovePermissions: false },
+    { requestKey: "client-6", leadAgentKey: "ops", text: "original message", attachments: [], autoApprovePermissions: true },
+  ]);
+});
+
+test("a send keeps its authorization choice while conversation creation is pending", async () => {
+  const creation = deferred<{ conversationId: string }>();
+  const requests: unknown[] = [];
+  const input = chat(null, () => creation.promise, async (_id, request) => { requests.push(request); });
+  input.setAutoApprove(true);
+  const sending = input.send();
+  input.setAutoApprove(false);
+  creation.resolve({ conversationId: "created" });
+  await sending;
+  assert.deepEqual(input.state.signatures, [true]);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [
+    { requestKey: "client-2", leadAgentKey: "ops", text: "original message", attachments: [], autoApprovePermissions: true },
+  ]);
+  assert.equal(input.state.authorizations["conversation:created"], false);
+  assert.equal(input.state.authorizations["new:ops"], undefined);
+});
+
+test("late conversation creation saves its submitted authorization without changing the new view", async () => {
+  const creation = deferred<{ conversationId: string }>();
+  const input = chat(null, () => creation.promise, async () => {});
+  input.setAutoApprove(false);
+  const sending = input.send();
+  input.navigate("b");
+  input.setAutoApprove(true);
+  creation.resolve({ conversationId: "created" });
+  await sending;
+  assert.equal(input.state.authorizations["conversation:created"], false);
+  assert.equal(input.state.authorizations["new:ops"], true);
+});
+
+test("retrying the same automatic authorization request keeps its request key", async () => {
+  const requests: unknown[] = [];
+  const input = chat("a", async () => ({ conversationId: "created" }), async (_id, request) => {
+    requests.push(request);
+    if (requests.length === 1) throw new Error("offline");
+  });
+  input.setAutoApprove(true);
+  await input.send();
+  await input.send();
+  assert.deepEqual(input.state.signatures, [true, true]);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [
+    { requestKey: "client-2", leadAgentKey: "ops", text: "original message", attachments: [], autoApprovePermissions: true },
+    { requestKey: "client-2", leadAgentKey: "ops", text: "original message", attachments: [], autoApprovePermissions: true },
+  ]);
+});
+
+test("changing automatic authorization after a failed send creates a different request", async () => {
+  const requests: unknown[] = [];
+  const input = chat("a", async () => ({ conversationId: "created" }), async (_id, request) => {
+    requests.push(request);
+    if (requests.length === 1) throw new Error("offline");
+  });
+  input.setAutoApprove(false);
+  await input.send();
+  input.setAutoApprove(true);
+  await input.send();
+  assert.deepEqual(input.state.signatures, [false, true]);
+  assert.deepEqual(JSON.parse(JSON.stringify(requests)), [
+    { requestKey: "client-2", leadAgentKey: "ops", text: "original message", attachments: [], autoApprovePermissions: false },
+    { requestKey: "client-4", leadAgentKey: "ops", text: "original message", attachments: [], autoApprovePermissions: true },
+  ]);
+});
 
 test("a late failed send restores only the original conversation's draft", async () => {
   const execution = deferred<unknown>();

@@ -12,12 +12,15 @@ services:
       interval: 1s
       retries: 60
   fixture:
-    image: node:22-bookworm-slim
+    image: ${UPGRADE_FIXTURE_IMAGE:-node:22-bookworm-slim}
     command: ["node", "/fixture/fixture-server.mjs"]
     volumes:
       - ${UPGRADE_REPO:?required}/scripts/opencode2-validation:/fixture:ro
   api:
     image: ${UPGRADE_API_IMAGE:-opshelper/opencode2-api:validation}
+    user: "${UPGRADE_TEST_UID:-0}:${UPGRADE_TEST_GID:-0}"
+    group_add:
+      - "${UPGRADE_TEST_DOCKER_GID:-0}"
     environment: &api-env
       DATABASE_URL: postgresql://opshelper:${UPGRADE_TEST_PASSWORD}@postgres:5432/opshelper
       DATA_ROOT: /data

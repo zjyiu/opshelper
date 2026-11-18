@@ -313,9 +313,10 @@ export interface ConversationAttachment {
 
 export interface ConversationCollaboration {
   traceId: string;
+  parentMessageId?: string;
   agentKey: string;
   title: string;
-  status: "running" | "waiting_input" | "completed" | "failed";
+  status: "running" | "waiting_input" | "waiting_permission" | "completed" | "failed";
   summary: string | null;
 }
 

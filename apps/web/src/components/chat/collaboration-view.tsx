@@ -9,7 +9,7 @@ import { Conversation } from "./conversation";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
 import { fromInitialMessages, sortedMessages } from "./message-model";
 
-const labels = { running: "执行中", waiting_input: "等待输入", failed: "失败", completed: "已完成" };
+const labels = { running: "执行中", waiting_input: "等待回答", waiting_permission: "等待授权", failed: "失败", completed: "已完成" };
 
 export function CollaborationView({ conversationId, traceId }: { conversationId: string; traceId: string }) {
   const [snapshot, setSnapshot] = useState<CollaborationSnapshot | null>(null);
@@ -81,7 +81,7 @@ export function CollaborationView({ conversationId, traceId }: { conversationId:
         />
       ) : null}
       <fieldset className="opshelper-collaboration-permissions" disabled={submitting}>
-        {!snapshot?.autoApprovePermissions && snapshot?.executionId ? snapshot.pendingPermissions.map((permission) => (
+        {snapshot?.executionId ? snapshot.pendingPermissions.map((permission) => (
           <PermissionCard
             key={permission.id}
             permission={{ ...permission, sessionId: "" }}

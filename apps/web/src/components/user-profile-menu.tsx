@@ -9,10 +9,11 @@ import { toast } from "@/lib/toast";
 import { confirm as confirmDialog } from "./ui/dialog-host";
 import { AdminAccountSettings } from "./admin-account-settings";
 import { ContainerActions, startActionState, stopActionState } from "./container-actions";
-import { IconClose, IconContainer, IconSliders } from "./chat/icons";
+import { IconClose, IconContainer, IconShield, IconSliders } from "./chat/icons";
 import { StatusPill } from "./status-pill";
 import { ThemeToggle } from "./theme-toggle";
 import { UserProfileName } from "./user-profile-name";
+import { UserApiTokens } from "./user-api-tokens";
 
 type ProfileUser = {
   name: string;
@@ -20,7 +21,7 @@ type ProfileUser = {
   role: string;
 };
 
-type ProfilePanel = "container" | "account";
+type ProfilePanel = "container" | "account" | "api-tokens";
 
 export function UserProfileMenu({ user }: { user: ProfileUser }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -29,6 +30,8 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
   const [containerLoading, setContainerLoading] = useState(false);
   const [containerError, setContainerError] = useState<string | null>(null);
   const [containerRefreshKey, setContainerRefreshKey] = useState(0);
+  const [tokenCreating, setTokenCreating] = useState(false);
+  const tokenCreatingRef = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -91,7 +94,7 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        setPanel(null);
+        if (!tokenCreatingRef.current) setPanel(null);
       } else if (event.key === "Tab") {
         const elements = focusable();
         const first = elements[0];
@@ -172,6 +175,10 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
             <IconSliders />
             <span>账户信息</span>
           </button>
+          <button type="button" role="menuitem" onClick={() => openPanel("api-tokens")}>
+            <IconShield />
+            <span>API Token</span>
+          </button>
           <ThemeToggle />
           <button className="opshelper-user-menu-logout" type="button" role="menuitem" onClick={() => void requestLogout()}>
             <span>退出登录</span>
@@ -183,7 +190,7 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
           className="file-dialog-backdrop profile-dialog-backdrop"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setPanel(null);
+            if (event.target === event.currentTarget && !tokenCreating) setPanel(null);
           }}
         >
           <section
@@ -195,12 +202,13 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
             tabIndex={-1}
           >
             <header className="profile-settings-dialog-header">
-              <h2 id={dialogTitleId}>{panel === "container" ? "我的工作台容器" : "账户信息"}</h2>
+              <h2 id={dialogTitleId}>{panel === "container" ? "我的工作台容器" : panel === "account" ? "账户信息" : "API Token"}</h2>
               <button
                 ref={closeDialogRef}
                 className="profile-settings-dialog-close"
                 type="button"
                 aria-label="关闭"
+                disabled={tokenCreating}
                 onClick={() => setPanel(null)}
               >
                 <IconClose />
@@ -257,8 +265,13 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
                   尚未创建容器。打开工作台聊天页时会自动为你创建并启动。
                 </div>
               )
-            ) : (
+            ) : panel === "account" ? (
               <AdminAccountSettings username={user.username} showTitle={false} />
+            ) : (
+              <UserApiTokens onCreatingChange={(creating) => {
+                tokenCreatingRef.current = creating;
+                setTokenCreating(creating);
+              }} />
             )}
           </section>
         </div>,

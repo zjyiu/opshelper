@@ -80,6 +80,7 @@ export class ConversationTextProjector {
     readonly sessionId: string,
     private executionIds: string[],
     private connectedAt: number,
+    private canEmit: (messageId: string) => boolean = () => true,
   ) {}
 
   setExecutionIds(ids: string[]) {
@@ -180,10 +181,10 @@ export class ConversationTextProjector {
     return parts;
   }
 
-  private textEvents(onlyMessageId?: string) {
+  textEvents(onlyMessageId?: string) {
     const events: ConversationTextEvent[] = [];
     for (const [messageId, parts] of this.parts) {
-      if ((onlyMessageId && onlyMessageId !== messageId) || this.roles.get(messageId) !== "assistant") continue;
+      if ((onlyMessageId && onlyMessageId !== messageId) || this.roles.get(messageId) !== "assistant" || !this.canEmit(messageId)) continue;
       for (const [partId, part] of parts) {
         if (part.type !== "text" || !part.anchored) continue;
         const text = safeStreamText(part.text, this.executionIds, part.complete);
@@ -197,6 +198,6 @@ export class ConversationTextProjector {
   }
 }
 
-export function conversationEventFrame(event: "text" | "ready" | "changed", data: unknown = {}) {
+export function conversationEventFrame(event: "text" | "operation" | "ready" | "changed", data: unknown = {}) {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }

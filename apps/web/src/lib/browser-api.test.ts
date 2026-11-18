@@ -3,13 +3,59 @@ import test from "node:test";
 
 import {
   createAgent,
+  createUserApiToken,
   createSkillRepositorySkill,
   deleteAgent,
   deleteSkillRepositorySkill,
+  deleteUserApiToken,
   getSkillRepositorySkill,
+  getSsoSettings,
   importAgentSkillPackage,
   listSkillRepository,
+  listUserApiTokens,
 } from "./browser-api";
+
+test("免密登录设置始终从后端读取", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ path: string; cache?: RequestCache }> = [];
+  globalThis.fetch = async (input, init) => {
+    calls.push({ path: String(input), cache: init?.cache });
+    return Response.json({ secretConfigured: true, encryptionKeyConfigured: true, accountWhitelist: [] });
+  };
+  try {
+    await getSsoSettings();
+    assert.deepEqual(calls, [{ path: "/v1/admin/sso", cache: "no-store" }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("API Token 管理使用当前用户接口并传播服务端错误", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: Array<{ path: string; method?: string; body?: string; cache?: RequestCache }> = [];
+  globalThis.fetch = async (input, init) => {
+    requests.push({
+      path: String(input),
+      method: init?.method,
+      body: typeof init?.body === "string" ? init.body : undefined,
+      cache: init?.cache,
+    });
+    if (init?.method === "DELETE") return new Response(JSON.stringify({ message: "撤销失败" }), { status: 403 });
+    return new Response(JSON.stringify(init?.method === "POST"
+      ? { id: "id", name: "系统", createdAt: "2026-01-01", token: "secret" }
+      : { tokens: [] }), { status: 200 });
+  };
+  try {
+    assert.deepEqual(await listUserApiTokens(), { tokens: [] });
+    assert.equal((await createUserApiToken("系统")).token, "secret");
+    await assert.rejects(deleteUserApiToken("a/b"), /撤销失败/);
+    assert.deepEqual(requests, [
+      { path: "/v1/users/me/api-tokens", method: undefined, body: undefined, cache: "no-store" },
+      { path: "/v1/users/me/api-tokens", method: "POST", body: '{"name":"系统"}', cache: "no-store" },
+      { path: "/v1/users/me/api-tokens/a%2Fb", method: "DELETE", body: undefined, cache: "no-store" },
+    ]);
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test("deleteAgent 使用编码后的管理接口并发送 DELETE", async () => {
   const originalFetch = globalThis.fetch;

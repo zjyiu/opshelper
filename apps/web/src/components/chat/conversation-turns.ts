@@ -1,3 +1,4 @@
+import type { ConversationCollaboration } from "@opshelper/shared";
 import type { ChatMessage, ChatPart } from "./message-model";
 
 export interface ConversationTurn {
@@ -30,4 +31,9 @@ export function turnParts(turn: ConversationTurn): ChatPart[] {
 
 export function turnErrors(turn: ConversationTurn): unknown[] {
   return turn.messages.flatMap((message) => message.error ? [message.error] : []);
+}
+
+export function turnCollaborations(turn: ConversationTurn, collaborations: ConversationCollaboration[]) {
+  const messageIds = new Set(turn.messages.map((message) => message.id));
+  return collaborations.filter((item) => item.parentMessageId && messageIds.has(item.parentMessageId));
 }

@@ -35,6 +35,7 @@ import {
 import { loadConfig } from "./config";
 import { currentExecutionMessages, latestCurrentAssistant, isFinalAssistant } from "./execution-observation";
 import { ConversationTextProjector, conversationEventFrame, readRuntimeEvents } from "./conversation-events";
+import { ConversationOperationProjector } from "./conversation-operations";
 import { resolveUserPathSafe } from "./file-service";
 import { runtimeAuthorization, type ManagedRuntime } from "./managed-runtime";
 import { prisma } from "./prisma";
@@ -1310,14 +1311,12 @@ export async function pruneEmptyExecutionOutputDirectories() {
   return removed;
 }
 
-async function runtimeState(connection: RuntimeConnection, rootSessionId: string): Promise<RuntimeConversationState> {
-  const [sessions, statuses, questions, permissions, rootMessages] = await Promise.all([
-    runtimeRequest<RuntimeSession[]>(connection, "GET", "/api/session"),
-    runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/api/session/active"),
-    runtimeRequest<RuntimeRequest[]>(connection, "GET", "/api/form"),
-    runtimeRequest<RuntimeRequest[]>(connection, "GET", "/api/permission/request"),
-    runtimeRequest<unknown[]>(connection, "GET", `/api/session/${rootSessionId}/message`),
-  ]);
+export function selectRuntimeDescendants(
+  sessions: RuntimeSession[],
+  rootSessionId: string,
+  priorityIds: string[],
+  limit = maxCollaborators,
+) {
   const byParent = new Map<string, RuntimeSession[]>();
   for (const session of sessions) {
     if (!session.parentID) continue;
@@ -1327,17 +1326,59 @@ async function runtimeState(connection: RuntimeConnection, rootSessionId: string
   }
   const descendants: RuntimeSession[] = [];
   const queue = [...(byParent.get(rootSessionId) ?? [])];
-  const seen = new Set<string>();
-  while (queue.length && descendants.length < maxCollaborators) {
+  const seen = new Set([rootSessionId]);
+  while (queue.length) {
     const session = queue.shift()!;
     if (seen.has(session.id)) continue;
     seen.add(session.id);
     descendants.push(session);
     queue.push(...(byParent.get(session.id) ?? []));
   }
+  if (descendants.length <= limit) return descendants;
+
+  const byId = new Map(descendants.map((session) => [session.id, session]));
+  const selected = new Set<string>();
+  const includePath = (id: string) => {
+    const path: string[] = [];
+    let current = byId.get(id);
+    while (current && !selected.has(current.id)) {
+      path.push(current.id);
+      current = current.parentID ? byId.get(current.parentID) : undefined;
+    }
+    if (selected.size + path.length > limit) return;
+    for (const item of path) selected.add(item);
+  };
+  for (const id of priorityIds) includePath(id);
+  const newest = [...descendants].sort((a, b) => {
+    const time = (session: RuntimeSession) => {
+      const created = (session.time as { created?: unknown } | undefined)?.created;
+      return typeof created === "number" && Number.isFinite(created) ? created : 0;
+    };
+    return time(b) - time(a);
+  });
+  for (const session of newest) includePath(session.id);
+  return descendants.filter((session) => selected.has(session.id));
+}
+
+async function runtimeState(connection: RuntimeConnection, rootSessionId: string): Promise<RuntimeConversationState> {
+  const [sessions, statuses, questions, permissions, rootMessages] = await Promise.all([
+    runtimeRequest<RuntimeSession[]>(connection, "GET", "/api/session"),
+    runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/api/session/active"),
+    runtimeRequest<RuntimeRequest[]>(connection, "GET", "/api/form"),
+    runtimeRequest<RuntimeRequest[]>(connection, "GET", "/api/permission/request"),
+    runtimeRequest<unknown[]>(connection, "GET", `/api/session/${rootSessionId}/message`),
+  ]);
+  const requestSessionIds = [...questions, ...permissions].flatMap((request) => {
+    const id = request.sessionID ?? request.sessionId;
+    return id ? [id] : [];
+  });
+  const descendants = selectRuntimeDescendants(sessions, rootSessionId, [
+    ...requestSessionIds,
+    ...Object.keys(statuses),
+  ]);
   const children = await Promise.all(descendants.map(async (session) => ({
     session,
-    messages: await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${session.id}/message`).catch(() => []),
+    messages: await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${session.id}/message`),
     status: statuses[session.id]?.type ?? "idle",
   })));
   const sessionIds = new Set([rootSessionId, ...descendants.map((session) => session.id)]);
@@ -1405,8 +1446,70 @@ function pendingPermissions(state: RuntimeConversationState): ConversationPermis
   });
 }
 
+function collaborationParentMessageId(state: RuntimeConversationState, session: RuntimeSession) {
+  const rootSessionId = state.rootMessages
+    .map((message) => runtimeMessageInfo(message)?.info.sessionID)
+    .find((id): id is string => typeof id === "string");
+  if (!rootSessionId) return undefined;
+  const sessions = new Map(state.children.map(({ session: child }) => [child.id, child]));
+  let rootChild = session;
+  while (rootChild.parentID && rootChild.parentID !== rootSessionId) {
+    const parent = sessions.get(rootChild.parentID);
+    if (!parent) return undefined;
+    rootChild = parent;
+  }
+  if (rootChild.parentID !== rootSessionId) return undefined;
+
+  const taskCalls: Array<{
+    messageId: string;
+    sessionId?: string;
+    agent?: string;
+    started?: number;
+    runningV2: boolean;
+  }> = [];
+  for (const message of state.rootMessages) {
+    const runtimeMessage = runtimeMessageInfo(message);
+    if (runtimeMessage?.info.role !== "assistant" || typeof runtimeMessage.info.id !== "string") continue;
+    for (const rawPart of runtimeMessage.parts) {
+      if (!rawPart || typeof rawPart !== "object" || Array.isArray(rawPart)) continue;
+      const part = rawPart as { tool?: unknown; state?: { metadata?: unknown } };
+      if (part.tool !== "task") continue;
+      const state = part.state as {
+        status?: unknown;
+        input?: { agent?: unknown };
+        metadata?: unknown;
+        time?: { created?: unknown };
+      } | undefined;
+      const metadata = state?.metadata && typeof state.metadata === "object" && !Array.isArray(state.metadata)
+        ? state.metadata as Record<string, unknown>
+        : {};
+      const started = state?.time?.created;
+      taskCalls.push({
+        messageId: runtimeMessage.info.id,
+        sessionId: typeof (metadata.sessionId ?? metadata.sessionID) === "string"
+          ? String(metadata.sessionId ?? metadata.sessionID)
+          : undefined,
+        agent: typeof state?.input?.agent === "string" ? state.input.agent : undefined,
+        started: typeof started === "number" && Number.isFinite(started) ? started : undefined,
+        runningV2: runtimeMessage.info.runtimeVersion === 2 && state?.status === "running",
+      });
+    }
+  }
+  const persisted = taskCalls.find((call) => call.sessionId === rootChild.id);
+  if (persisted) return persisted.messageId;
+
+  const created = (rootChild.time as { created?: unknown } | undefined)?.created;
+  if (typeof created !== "number" || !Number.isFinite(created)) return undefined;
+  const matchingCall = taskCalls
+    .filter((call) => call.runningV2 && call.started !== undefined && call.started <= created &&
+      (!call.agent || typeof rootChild.agent !== "string" || call.agent === rootChild.agent))
+    .sort((left, right) => right.started! - left.started!)[0];
+  return matchingCall?.messageId;
+}
+
 function collaborations(state: RuntimeConversationState): ConversationCollaboration[] {
   return state.children.map(({ session, messages, status }) => {
+    const parentMessageId = collaborationParentMessageId(state, session);
     const assistantMessages = messages.filter((message) => messageRole(message) === "assistant");
     const latest = assistantMessages.at(-1);
     const agent = findLastItem(
@@ -1414,38 +1517,63 @@ function collaborations(state: RuntimeConversationState): ConversationCollaborat
       (value): value is string => typeof value === "string",
     );
     const error = messages.some((message) => Boolean(messageError(message)));
-    const sessionWaiting = [...state.questions, ...state.permissions].some((request) =>
+    const hasQuestion = state.questions.some((request) =>
+      (request.sessionID ?? request.sessionId) === session.id,
+    );
+    const hasPermission = state.permissions.some((request) =>
       (request.sessionID ?? request.sessionId) === session.id,
     );
     return {
       traceId: createHash("sha256").update(session.id).digest("hex").slice(0, 12),
+      ...(parentMessageId ? { parentMessageId } : {}),
       agentKey: typeof agent === "string" ? agent : "协作智能体",
       title: typeof session.title === "string" ? session.title : "协作任务",
-      status: error ? "failed" : sessionWaiting ? "waiting_input" : status === "busy" ? "running" : "completed",
+      status: error ? "failed" : hasQuestion ? "waiting_input" : hasPermission ? "waiting_permission" : status === "busy" ? "running" : "completed",
       summary: latest ? summarizeMessage(latest) : null,
     };
   });
 }
 
-function scopeExecutionState(state: RuntimeConversationState, execution: Execution, rootId: string): RuntimeConversationState {
+export function scopeExecutionState(state: RuntimeConversationState, execution: Pick<Execution, "promptMarker">, rootId: string): RuntimeConversationState {
   const messages = currentExecutionMessages(state.rootMessages, executionPromptMarker(execution.promptMarker));
   const sessionIds = new Set([rootId]);
-  const includeTaskSessions = (items: unknown[]) => {
+  const includeTaskSessions = (items: unknown[], parentId: string) => {
     for (const item of items) {
-      for (const raw of runtimeMessageInfo(item)?.parts ?? []) {
-        const part = raw as { tool?: string; state?: { metadata?: { sessionId?: string } }; metadata?: { sessionId?: string } };
+      const message = runtimeMessageInfo(item);
+      for (const raw of message?.parts ?? []) {
+        const part = raw as {
+          tool?: string;
+          state?: { status?: string; input?: { agent?: unknown }; metadata?: { sessionId?: string }; time?: { created?: unknown } };
+          metadata?: { sessionId?: string };
+        };
         if (part.tool !== "task") continue;
         const id = part.state?.metadata?.sessionId ?? part.metadata?.sessionId;
-        if (id) sessionIds.add(id);
+        if (id) {
+          sessionIds.add(id);
+          continue;
+        }
+        // V2 does not persist the child ID until the subagent tool finishes.
+        const started = part.state?.time?.created;
+        if (message?.info.runtimeVersion !== 2 || part.state?.status !== "running" ||
+            typeof started !== "number" || !Number.isFinite(started)) continue;
+        const agent = part.state.input?.agent;
+        for (const child of state.children) {
+          const created = (child.session.time as { created?: unknown } | undefined)?.created;
+          if (child.session.parentID !== parentId || typeof created !== "number" ||
+              !Number.isFinite(created) || created < started) continue;
+          if (typeof agent === "string" && typeof child.session.agent === "string" &&
+              child.session.agent !== agent) continue;
+          sessionIds.add(child.session.id);
+        }
       }
     }
   };
-  includeTaskSessions(messages);
+  includeTaskSessions(messages, rootId);
   let previousSize = 0;
   while (previousSize !== sessionIds.size) {
     previousSize = sessionIds.size;
     for (const child of state.children) {
-      if (sessionIds.has(child.session.id)) includeTaskSessions(child.messages);
+      if (sessionIds.has(child.session.id)) includeTaskSessions(child.messages, child.session.id);
     }
   }
   const children = state.children.filter((child) => sessionIds.has(child.session.id));
@@ -1453,10 +1581,21 @@ function scopeExecutionState(state: RuntimeConversationState, execution: Executi
     .map((message) => runtimeMessageInfo(message)?.info.id));
   const belongs = (request: RuntimeRequest) => {
     const id = request.sessionID ?? request.sessionId;
-    const tool = request.tool as { messageID?: string } | undefined;
+    const tool = (request.tool ?? request.source) as { messageID?: string } | undefined;
     return Boolean(id && sessionIds.has(id) && (!tool?.messageID || messageIds.has(tool.messageID)));
   };
   return { ...state, children, sessionIds, questions: state.questions.filter(belongs), permissions: state.permissions.filter(belongs) };
+}
+
+export function collaborationDisplayState(state: RuntimeConversationState, activeState: RuntimeConversationState | null): RuntimeConversationState {
+  const children = new Map(state.children.map((child) => [child.session.id, child]));
+  for (const child of activeState?.children ?? []) children.set(child.session.id, child);
+  return {
+    ...state,
+    children: [...children.values()],
+    questions: activeState?.questions ?? [],
+    permissions: activeState?.permissions ?? [],
+  };
 }
 
 const autoPermissionReplies = new Map<string, Promise<boolean>>();
@@ -2208,12 +2347,13 @@ export async function getConversationSnapshot(userId: string, conversationId: st
   });
   const positions = queuePositions(queued);
   let state: RuntimeConversationState | null = null;
+  let observedState: RuntimeConversationState | null = null;
   const active = findLastItem(executions, (execution) => activeStatuses.includes(execution.status));
   if (conversation.nativeSessionId) {
     try {
       const connection = await connectRuntimeForRead(userId);
       state = await runtimeState(connection, conversation.nativeSessionId);
-      if (active) await observeExecution(active, connection);
+      if (active) observedState = await observeExecution(active, connection);
     } catch {
       throw new ConversationServiceError("运行环境连接中断，正在重试", 503);
     }
@@ -2228,6 +2368,10 @@ export async function getConversationSnapshot(userId: string, conversationId: st
     refreshedExecutions,
     (execution) => activeStatuses.includes(execution.status),
   );
+  const activeState = refreshedActive && state
+    ? (refreshedActive.id === active?.id && observedState)
+      || scopeExecutionState(state, refreshedActive, conversation.nativeSessionId!)
+    : null;
   return {
     conversation: conversationSummary(
       { ...refreshedConversation, executions: refreshedExecutions.slice(-1) },
@@ -2235,9 +2379,9 @@ export async function getConversationSnapshot(userId: string, conversationId: st
     ),
     messages: sanitizeRuntimeMessages(state?.rootMessages ?? [], await visibleHistoryExecutions(userId, state?.rootMessages ?? [], refreshedExecutions)),
     executions: refreshedExecutions.map((execution) => serializeExecutionSummary(execution, positions.get(execution.id) ?? null)),
-    collaborations: state ? collaborations(state) : [],
-    pendingQuestion: refreshedActive && state ? pendingQuestion(scopeExecutionState(state, refreshedActive, conversation.nativeSessionId!)) : null,
-    pendingPermissions: refreshedActive && state ? pendingPermissions(scopeExecutionState(state, refreshedActive, conversation.nativeSessionId!)) : [],
+    collaborations: state ? collaborations(collaborationDisplayState(state, activeState)) : [],
+    pendingQuestion: activeState ? pendingQuestion(activeState) : null,
+    pendingPermissions: activeState ? pendingPermissions(activeState) : [],
     refreshedAt: new Date().toISOString(),
   };
 }
@@ -2265,14 +2409,14 @@ export async function getCollaborationSnapshot(userId: string, conversationId: s
   if (!conversation.nativeSessionId) throw new ConversationServiceError("子智能体会话不存在", 404);
   const connection = await connectRuntimeForRead(userId);
   const state = await runtimeState(connection, conversation.nativeSessionId);
-  const detail = collaborationDetail(state, traceId);
   const active = await prisma.execution.findFirst({
     where: { conversationId, userId, status: { in: activeStatuses } },
     orderBy: { createdAt: "desc" },
   });
+  const scoped = active ? scopeExecutionState(state, active, conversation.nativeSessionId) : null;
+  const detail = collaborationDetail(collaborationDisplayState(state, scoped), traceId);
   if (active) {
-    const scoped = scopeExecutionState(state, active, conversation.nativeSessionId);
-    if (scoped.children.some(({ session }) =>
+    if (scoped?.children.some(({ session }) =>
       createHash("sha256").update(session.id).digest("hex").slice(0, 12) === traceId)) {
       detail.executionId = active.id;
       detail.autoApprovePermissions = active.autoApprovePermissions;
@@ -2285,11 +2429,16 @@ export async function getCollaborationSnapshot(userId: string, conversationId: s
   return detail;
 }
 
-export async function openConversationEvents(userId: string, conversationId: string, signal: AbortSignal) {
+export async function openConversationEvents(
+  userId: string,
+  conversationId: string,
+  signal: AbortSignal,
+  executionScope?: { current: ExecutionAnswerSource | null },
+) {
   const conversation = await requireOwnedConversation(userId, conversationId);
   if (!conversation.nativeSessionId) throw new ConversationServiceError("会话尚未就绪", 409);
-  // Merely viewing a stream must not start or rebuild a user's container.
-  const connection = await connectExistingRuntime(userId);
+  // Viewing a conversation must not start a container; an integration submission may.
+  const connection = executionScope ? await connectRuntimeForRead(userId) : await connectExistingRuntime(userId);
   const controller = new AbortController();
   const abort = () => controller.abort();
   signal.addEventListener("abort", abort, { once: true });
@@ -2317,17 +2466,44 @@ export async function openConversationEvents(userId: string, conversationId: str
     const inherited = await visibleHistoryExecutions(userId, messages, []);
     clearTimeout(deadline);
     const historicalIds = inherited.map((execution) => execution.id);
-    const projector = new ConversationTextProjector(conversation.nativeSessionId, [...executionIds, ...historicalIds], connectedAt);
-    const initial = projector.seed(messages);
+    const allowedMessages = new Set<string>();
+    const scopeMessages = (values: unknown[]) => {
+      if (!executionScope) return values;
+      const execution = executionScope.current;
+      if (!execution) return [];
+      const current = currentExecutionMessages(values, executionPromptMarker(execution.promptMarker));
+      for (const message of current) {
+        const id = runtimeMessageInfo(message)?.info.id;
+        if (typeof id === "string") allowedMessages.add(id);
+      }
+      return current;
+    };
+    const projector = new ConversationTextProjector(
+      conversation.nativeSessionId,
+      [...executionIds, ...historicalIds],
+      connectedAt,
+      (id) => !executionScope || allowedMessages.has(id),
+    );
+    const operationProjector = new ConversationOperationProjector();
+    const initial = projector.seed(scopeMessages(messages));
     const body = response.body;
     return (async function* () {
       try {
         for (const text of initial) yield conversationEventFrame("text", text);
         yield conversationEventFrame("ready");
         let lastChanged = 0;
+        let lastScopeRead = 0;
         for await (const rawEvent of readRuntimeEvents(body)) {
           const event = normalizeV2Event(rawEvent);
           if (signal.aborted) break;
+          if (executionScope?.current && Date.now() - lastScopeRead >= 500) {
+            lastScopeRead = Date.now();
+            const scopedMessages = scopeMessages(await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${conversation.nativeSessionId}/message`));
+            for (const text of projector.textEvents()) yield conversationEventFrame("text", text);
+            for (const operation of operationProjector.update(scopedMessages)) {
+              yield conversationEventFrame("operation", operation);
+            }
+          }
           if (event.type === "server.heartbeat" || event.type === "server.connected") {
             yield ": keepalive\n\n";
             continue;

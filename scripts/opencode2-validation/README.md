@@ -16,6 +16,8 @@ python3 scripts/opencode2-validation/run.py
 
 覆盖首次配置、连续对话、队列与中文 SSE、模型切换、附件、文件产物、技能、MCP、单层与多层协作、角色变更、提问、权限同意/拒绝/自动授权、主任务与子任务取消、会话分支边界、跨用户隔离、容器/API 重启、调度和分配撤销。
 
+设置 `VALIDATION_FROM=integration-stream` 可单独验证外部 API 的实时 SSE、历史及排队执行隔离和多层子智能体自动授权；同样需要先构建上述镜像并使用隔离运行器。
+
 报告保存在 `.temp/opencode2-validation-*/acceptance-report.json`，包含通过项和镜像 ID。失败诊断留在该目录 `command-error.log`；目录中的配置与日志可能包含测试凭据，不提交 Git。当前网页构建的 HTML 响应检查不代替浏览器视觉验收；真实模型连通性需在目标部署另测。
 
 切换脚本保护测试：
@@ -25,3 +27,12 @@ python3 scripts/opencode2-cutover.test.py
 ```
 
 测试默认预览、错误镜像阻断、未完成任务阻断和重复执行保护。实际开发实例的操作顺序见[切换说明](../../docs/guide/opencode-2-migration.md)。
+
+只验证子智能体授权时，可运行以下隔离用例，覆盖顶层批准、拒绝、多层协作与自动授权。API 进程的 UID/GID 应与测试数据目录和用户运行容器一致；`UPGRADE_FIXTURE_IMAGE` 可指定本地已有的含 Node.js 镜像，避免拉取测试模型镜像。
+
+```sh
+UPGRADE_FIXTURE_IMAGE=opshelper/opencode-runtime:2.0.27 \
+UPGRADE_TEST_UID="$(id -u)" UPGRADE_TEST_GID="$(id -g)" \
+UPGRADE_TEST_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)" \
+VALIDATION_FROM=child-permission python3 scripts/opencode2-validation/run.py
+```

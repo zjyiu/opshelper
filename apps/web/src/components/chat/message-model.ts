@@ -38,7 +38,6 @@ export interface ChatMessage {
 export type MessageMap = Map<string, ChatMessage>;
 
 let orderSeq = 0;
-let partSeq = 0;
 
 function stringify(value: unknown): string {
   if (value == null) {
@@ -75,7 +74,7 @@ function toTool(raw: any): ChatTool | undefined {
   };
 }
 
-export function toPart(raw: any): ChatPart {
+export function toPart(raw: any, fallbackId: string): ChatPart {
   const type = String(raw?.type ?? "text");
   let text = "";
   if (typeof raw?.text === "string") {
@@ -85,7 +84,7 @@ export function toPart(raw: any): ChatPart {
   }
   const isTool = type === "tool" || type.startsWith("tool") || raw?.tool || raw?.toolName;
   return {
-    id: String(raw?.id ?? `part-${partSeq++}`),
+    id: String(raw?.id ?? fallbackId),
     type,
     text,
     tool: isTool ? toTool(raw) : undefined,
@@ -108,7 +107,7 @@ export function fromInitialMessages(items: any[]): MessageMap {
       id,
       role,
       order: orderSeq++,
-      parts: rawParts.map(toPart),
+      parts: rawParts.map((part, index) => toPart(part, `opshelper-part:${id}:${index}`)),
       error: info?.error,
     });
   }

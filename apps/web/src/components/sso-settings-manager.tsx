@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type {
   SsoSettingsSnapshot,
   SsoTokenResponse,
   UserSummary,
 } from "@opshelper/shared";
 
-import { generateSsoToken, updateSsoSecret, updateSsoWhitelist } from "@/lib/browser-api";
+import { generateSsoToken, getSsoSettings, listUsers, updateSsoSecret, updateSsoWhitelist } from "@/lib/browser-api";
+import { toast } from "@/lib/toast";
+import { usePageRefresh } from "./navigation-refresh";
 import { SsoTokenDialog } from "./sso-token-dialog";
 import { SsoUserPicker } from "./sso-user-picker";
 
@@ -19,6 +21,8 @@ export function SsoSettingsManager({
   users: UserSummary[];
 }) {
   const [settings, setSettings] = useState(initialSettings);
+  const [availableUsers, setAvailableUsers] = useState(users);
+  const refreshSequence = useRef(0);
   const [accounts, setAccounts] = useState(initialSettings.accountWhitelist);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [secret, setSecret] = useState("");
@@ -31,7 +35,32 @@ export function SsoSettingsManager({
   const [whitelistSuccess, setWhitelistSuccess] = useState(false);
   const [tokenLoading, setTokenLoading] = useState(false);
   const [tokenResult, setTokenResult] = useState<{ userName: string; result: SsoTokenResponse } | null>(null);
+
+  async function refreshSettings() {
+    const sequence = ++refreshSequence.current;
+    try {
+      const [nextSettings, nextUsers] = await Promise.all([getSsoSettings(), listUsers()]);
+      if (sequence !== refreshSequence.current) return;
+      setSettings(nextSettings);
+      setAccounts(nextSettings.accountWhitelist);
+      setAvailableUsers(nextUsers.users);
+      setWhitelistError(null);
+    } catch (error) {
+      if (sequence === refreshSequence.current) {
+        toast.error(error instanceof Error ? error.message : "刷新免密登录设置失败");
+      }
+    }
+  }
+
+  useEffect(() => {
+    void refreshSettings();
+    return () => { refreshSequence.current += 1; };
+  }, []);
+
+  usePageRefresh(() => { void refreshSettings(); });
+
   async function saveSecret() {
+    refreshSequence.current += 1;
     setSecretSaving(true);
     setSecretError(null);
     setSecretSuccess(false);
@@ -43,11 +72,13 @@ export function SsoSettingsManager({
     } catch (nextError) {
       setSecretError(nextError instanceof Error ? nextError.message : "保存共享密钥失败");
     } finally {
+      refreshSequence.current += 1;
       setSecretSaving(false);
     }
   }
 
   async function saveWhitelist(nextAccounts: string[]) {
+    refreshSequence.current += 1;
     setWhitelistSaving(true);
     setWhitelistError(null);
     setWhitelistSuccess(false);
@@ -59,6 +90,7 @@ export function SsoSettingsManager({
       const message = nextError instanceof Error ? nextError.message : "未知错误";
       setWhitelistError(`保存白名单失败，请刷新页面核对后重试：${message}`);
     } finally {
+      refreshSequence.current += 1;
       setWhitelistSaving(false);
     }
   }
@@ -141,14 +173,17 @@ export function SsoSettingsManager({
               className="button-secondary"
               type="button"
               disabled={whitelistSaving || tokenLoading || Boolean(whitelistError)}
-              onClick={() => setPickerOpen(true)}
+              onClick={() => {
+                setPickerOpen(true);
+                void refreshSettings();
+              }}
             >
               添加用户
             </button>
           </div>
           <div className="agent-assignment-options" role="group" aria-label="免密登录白名单">
             {accounts.map((account) => {
-              const user = users.find((entry) => entry.username === account);
+              const user = availableUsers.find((entry) => entry.username === account);
               return (
                 <div className="sso-user-row" key={account}>
                   <div className="sso-user-info">
@@ -193,7 +228,7 @@ export function SsoSettingsManager({
       </article>
       {pickerOpen ? (
         <SsoUserPicker
-          users={users}
+          users={availableUsers}
           existingAccounts={accounts}
           onAdd={(selected) => {
             setPickerOpen(false);

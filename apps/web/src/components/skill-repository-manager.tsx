@@ -1,7 +1,7 @@
 "use client";
 
 import type { SkillRepositorySkillSummary } from "@opshelper/shared";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createSkillRepositorySkill,
@@ -12,6 +12,7 @@ import { toast } from "@/lib/toast";
 import { IconSearch } from "@/components/chat/icons";
 import { SkillDetailModal } from "@/components/skill-detail-modal";
 import { prompt as promptDialog } from "@/components/ui/dialog-host";
+import { usePageRefresh } from "@/components/navigation-refresh";
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -24,6 +25,7 @@ export function SkillRepositoryManager({
 }) {
   const uploadRef = useRef<HTMLInputElement>(null);
   const [skills, setSkills] = useState(initialSkills);
+  const refreshSequence = useRef(0);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [active, setActive] = useState<SkillRepositorySkillSummary | null>(null);
@@ -39,10 +41,21 @@ export function SkillRepositoryManager({
     visibleSkillNames.every((name) => selected.includes(name));
 
   async function refreshSkills() {
+    const sequence = ++refreshSequence.current;
     const snapshot = await listSkillRepository();
+    if (sequence !== refreshSequence.current) return;
     setSkills(snapshot.skills);
     setSelected((current) => current.filter((name) => snapshot.skills.some((skill) => skill.name === name)));
   }
+
+  useEffect(() => {
+    void refreshSkills().catch((error) => toast.error(errorMessage(error, "刷新技能仓库失败")));
+    return () => { refreshSequence.current += 1; };
+  }, []);
+
+  usePageRefresh(() => {
+    void refreshSkills().catch((error) => toast.error(errorMessage(error, "刷新技能仓库失败")));
+  });
 
   function toggleSkill(name: string) {
     setSelected((current) =>

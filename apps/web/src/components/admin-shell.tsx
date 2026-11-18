@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -26,6 +26,7 @@ import {
   IconUsers,
 } from "./chat/icons";
 import { UserProfileMenu } from "./user-profile-menu";
+import { refreshCurrentPage, useRouteRefresh } from "./navigation-refresh";
 
 // 与 chat.css 里侧栏改为抽屉的断点保持一致。
 const DRAWER_MEDIA_QUERY = "(max-width: 640px)";
@@ -108,6 +109,8 @@ export function AdminShell({
   children: ReactNode;
 }>) {
   const pathname = usePathname();
+  const router = useRouter();
+  useRouteRefresh();
   const [showSidebar, setShowSidebar] = useState(false);
   const [isDrawer, setIsDrawer] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_WIDTH.fallback);
@@ -215,8 +218,12 @@ export function AdminShell({
                     key={item.href}
                     className={`opshelper-assistant${active ? " active-page" : ""}`}
                     href={item.href}
+                    prefetch={false}
                     aria-current={active ? "page" : undefined}
-                    onClick={() => setShowSidebar(false)}
+                    onNavigate={() => {
+                      setShowSidebar(false);
+                      if (active) refreshCurrentPage(router);
+                    }}
                   >
                     <span className="opshelper-lib-icon">{item.icon}</span>
                     <span className="opshelper-assistant-text">

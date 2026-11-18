@@ -50,8 +50,20 @@ html, body {
 
 /* 优雅的平滑滚动条与全局高亮色 */
 ::selection {
-  background: color-mix(in srgb, var(--g-accent) 16%, transparent);
+  background: rgba(5, 150, 105, 0.24);
   color: var(--g-text);
+}
+
+::-moz-selection {
+  background: rgba(5, 150, 105, 0.24);
+  color: var(--g-text);
+}
+
+@supports (background-color: color-mix(in srgb, black, transparent)) {
+  ::selection {
+    background: color-mix(in srgb, var(--g-accent) 16%, transparent);
+    color: var(--g-text);
+  }
 }
 
 ::-webkit-scrollbar {
@@ -2937,8 +2949,20 @@ select:focus-visible {
 }
 
 .login-shell ::selection {
-  background: color-mix(in srgb, var(--g-accent) 16%, transparent);
+  background: rgba(5, 150, 105, 0.24);
   color: #312e81;
+}
+
+.login-shell ::-moz-selection {
+  background: rgba(5, 150, 105, 0.24);
+  color: #312e81;
+}
+
+@supports (background-color: color-mix(in srgb, black, transparent)) {
+  .login-shell ::selection {
+    background: color-mix(in srgb, var(--g-accent) 16%, transparent);
+    color: #312e81;
+  }
 }
 
 .login-wrapper-standalone {

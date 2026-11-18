@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { UserCreateForm } from "@/components/user-create-form";
 import { UserEditForm } from "@/components/user-edit-form";
 import { toast } from "@/lib/toast";
+import { usePageRefresh } from "@/components/navigation-refresh";
 
 type UserItem = AdminUsersSnapshot["users"][number];
 
@@ -52,6 +53,7 @@ export function UserManagementPanel({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(1);
   const isInitialQuerySync = useRef(true);
+  const refreshSequence = useRef(0);
 
   // Debounce search query → fetch + URL sync.
   useEffect(() => {
@@ -59,6 +61,7 @@ export function UserManagementPanel({
       isInitialQuerySync.current = false;
       return;
     }
+    const sequence = ++refreshSequence.current;
     const handle = window.setTimeout(() => {
       const trimmed = query.trim();
       const params = new URLSearchParams(window.location.search);
@@ -70,15 +73,15 @@ export function UserManagementPanel({
       setSearching(true);
       listUsers(trimmed)
         .then((snapshot) => {
-          if (snapshot) {
+          if (sequence === refreshSequence.current && snapshot) {
             setUsers(snapshot.users);
             setPage(1);
           }
         })
         .catch((error) => {
-          toast.error(error instanceof Error ? error.message : "搜索用户失败");
+          if (sequence === refreshSequence.current) toast.error(error instanceof Error ? error.message : "搜索用户失败");
         })
-        .finally(() => setSearching(false));
+        .finally(() => { if (sequence === refreshSequence.current) setSearching(false); });
     }, 300);
     return () => window.clearTimeout(handle);
   }, [query, router]);
@@ -120,11 +123,42 @@ export function UserManagementPanel({
   }
 
   async function refreshUsers() {
+    const sequence = ++refreshSequence.current;
     try {
       const snapshot = await listUsers(query.trim());
-      if (snapshot) setUsers(snapshot.users);
+      if (sequence === refreshSequence.current && snapshot) setUsers(snapshot.users);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "刷新用户列表失败");
+      if (sequence === refreshSequence.current) toast.error(error instanceof Error ? error.message : "刷新用户列表失败");
+    } finally {
+      if (sequence === refreshSequence.current) setSearching(false);
+    }
+  }
+
+  useEffect(() => {
+    void refreshUsers();
+    return () => { refreshSequence.current += 1; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  usePageRefresh(() => { void refreshUsers(); });
+
+  async function openUser(userId: string) {
+    const sequence = ++refreshSequence.current;
+    setSearching(true);
+    try {
+      const snapshot = await listUsers(query.trim());
+      if (sequence !== refreshSequence.current) return;
+      setUsers(snapshot.users);
+      if (!snapshot.users.some((user) => user.id === userId)) {
+        setMode("view");
+        toast.error("用户已不存在或不再匹配当前搜索");
+        return;
+      }
+      setSelectedUserId(userId);
+      setMode("edit");
+    } catch (error) {
+      if (sequence === refreshSequence.current) toast.error(error instanceof Error ? error.message : "读取用户失败");
+    } finally {
+      if (sequence === refreshSequence.current) setSearching(false);
     }
   }
 
@@ -218,15 +252,11 @@ export function UserManagementPanel({
                 <div
                   key={user.id}
                   className={`um-table-row${isSelected ? " um-table-row-selected" : ""}`}
-                  onClick={() => {
-                    setSelectedUserId(user.id);
-                    setMode("edit");
-                  }}
+                  onClick={() => void openUser(user.id)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      setSelectedUserId(user.id);
-                      setMode("edit");
+                      void openUser(user.id);
                     }
                   }}
                   role="button"

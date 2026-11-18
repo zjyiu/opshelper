@@ -81,6 +81,32 @@ export async function getChatModels() {
   return fetchJson<ChatModelsResponse>("/v1/users/me/models", { cache: "no-store" });
 }
 
+export interface UserApiToken {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export async function listUserApiTokens() {
+  return fetchJson<{ tokens: UserApiToken[] }>("/v1/users/me/api-tokens", { cache: "no-store" });
+}
+
+export async function createUserApiToken(name: string) {
+  return fetchJson<UserApiToken & { token: string }>("/v1/users/me/api-tokens", {
+    method: "POST",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteUserApiToken(tokenId: string) {
+  return fetchJson<void>(`/v1/users/me/api-tokens/${encodeURIComponent(tokenId)}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+}
+
 export async function createUser(input: CreateUserRequest) {
   return fetchJson<CreateUserResponse>("/v1/admin/users", {
     method: "POST",
@@ -172,6 +198,10 @@ export async function deleteSkillRepositorySkill(skillName: string) {
   return fetchJson<void>(`/v1/admin/skill-repository/${encodeURIComponent(skillName)}`, {
     method: "DELETE",
   });
+}
+
+export async function getSsoSettings() {
+  return fetchJson<SsoSettingsSnapshot>("/v1/admin/sso", { cache: "no-store" });
 }
 
 export async function updateSsoSecret(secret: string) {

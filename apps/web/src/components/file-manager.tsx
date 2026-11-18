@@ -28,6 +28,7 @@ import {
 } from "./ui/dialog-host";
 import { toast } from "@/lib/toast";
 import { uploadStore } from "@/lib/upload-store";
+import { usePageRefresh } from "./navigation-refresh";
 import {
   collectDroppedFiles,
   copyText,
@@ -205,7 +206,8 @@ export function FileManager({
               const response = await fetch(listUrl(p), { cache: "no-store" });
               const payload = await parseJson<{ files: FileInfo[] }>(response);
               return [p, payload.files] as const;
-            } catch {
+            } catch (error) {
+              if (p === rootPath || (requestedPath && p === parentPath(requestedPath))) throw error;
               return [p, null] as const;
             }
           }),
@@ -248,8 +250,9 @@ export function FileManager({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [requestedPath]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  usePageRefresh(() => { run(() => refreshTree(currentPath)); });
 
   function switchView(next: FileView) {
     setView(next);
@@ -334,7 +337,8 @@ export function FileManager({
           const response = await fetch(listUrl(p), { cache: "no-store" });
           const payload = await parseJson<{ files: FileInfo[] }>(response);
           return [p, payload.files] as const;
-        } catch {
+        } catch (error) {
+          if (p === rootPath || p === currentPath) throw error;
           return [p, null] as const;
         }
       }),

@@ -5,6 +5,9 @@ import { ExecutionSource } from "@prisma/client";
 
 import {
   collaborationDetail,
+  collaborationDisplayState,
+  scopeExecutionState,
+  selectRuntimeDescendants,
   nativeTaskPermissions,
   autoApprovePermissionRequests,
   pendingQuestion,
@@ -533,6 +536,141 @@ test("子会话详情只接受所属会话树中的排障编号并清理原生 I
   assert.match(JSON.stringify(detail.messages), /你好/);
   assert.doesNotMatch(JSON.stringify(detail.messages), /child-a/);
   assert.throws(() => collaborationDetail(state, "000000000000"), /子智能体会话不存在/);
+});
+
+test("协作状态区分提问与授权，历史请求不会显示为当前等待", async () => {
+  const { createHash } = await import("node:crypto");
+  const trace = createHash("sha256").update("child-a").digest("hex").slice(0, 12);
+  const state = {
+    ...childState(),
+    rootMessages: [
+      { info: { id: "user", role: "user" }, parts: [{ type: "text", text: executionPromptMarker("current") }] },
+      { info: { id: "parent", role: "assistant", parentID: "user" }, parts: [
+        { tool: "task", state: { metadata: { sessionId: "child-a" } } },
+      ] },
+    ],
+    questions: [{ id: "old-question", sessionID: "child-a", tool: { messageID: "old-message" }, questions: [] }],
+    permissions: [{ id: "permission", sessionID: "child-a", tool: { messageID: "m-child" }, permission: "read" }],
+  };
+  const active = scopeExecutionState(state, { promptMarker: "current" }, "root-owned");
+  const detail = collaborationDetail(collaborationDisplayState(state, active), trace);
+  assert.equal(detail.collaboration.status, "waiting_permission");
+  assert.equal(detail.pendingQuestion, null);
+  assert.equal(detail.pendingPermissions[0].id, "permission");
+
+  const finished = collaborationDetail(collaborationDisplayState(state, null), trace);
+  assert.notEqual(finished.collaboration.status, "waiting_permission");
+  assert.notEqual(finished.collaboration.status, "waiting_input");
+  assert.deepEqual(finished.pendingPermissions, []);
+});
+
+test("子协作及其后代关联到主会话中发起协作的助手消息", async () => {
+  const { createHash } = await import("node:crypto");
+  const trace = createHash("sha256").update("leaf").digest("hex").slice(0, 12);
+  const state = {
+    rootMessages: [{
+      info: { id: "assistant-turn-1", sessionID: "root-owned", role: "assistant" },
+      parts: [{ tool: "task", state: { metadata: { sessionId: "child-a" } } }],
+    }],
+    children: [
+      { session: { id: "child-a", parentID: "root-owned", title: "主协作" }, messages: [], status: "idle" },
+      { session: { id: "leaf", parentID: "child-a", title: "嵌套协作" }, messages: [], status: "idle" },
+    ],
+    statuses: {},
+    questions: [],
+    permissions: [],
+    sessionIds: new Set(["root-owned", "child-a", "leaf"]),
+  };
+  assert.equal(collaborationDetail(state, trace).collaboration.parentMessageId, "assistant-turn-1");
+});
+
+test("V2 子会话创建时尚未写入 task metadata，也实时关联到运行中的助手消息", async () => {
+  const { createHash } = await import("node:crypto");
+  const trace = createHash("sha256").update("child-live").digest("hex").slice(0, 12);
+  const state = {
+    rootMessages: [{
+      info: { id: "assistant-live", sessionID: "root-live", role: "assistant", runtimeVersion: 2 },
+      parts: [{
+        tool: "task",
+        state: { status: "running", input: { agent: "network-ops" }, metadata: {}, time: { created: 100 } },
+      }],
+    }],
+    children: [{
+      session: { id: "child-live", parentID: "root-live", agent: "network-ops", time: { created: 105 } },
+      messages: [],
+      status: "busy",
+    }],
+    statuses: {},
+    questions: [],
+    permissions: [],
+    sessionIds: new Set(["root-live", "child-live"]),
+  };
+  assert.equal(collaborationDetail(state, trace).collaboration.parentMessageId, "assistant-live");
+});
+
+test("V2 运行中的子任务尚无会话 ID 时，按父会话和任务时间识别本轮嵌套授权", async () => {
+  const { createHash } = await import("node:crypto");
+  const task = (agent: string, created: number, status = "running") => ({
+    tool: "task", state: { status, input: { agent }, metadata: {}, time: { created } },
+  });
+  const assistant = (id: string, parts: unknown[]) => ({
+    info: { id, role: "assistant", runtimeVersion: 2 }, parts,
+  });
+  const state = {
+    rootMessages: [
+      { info: { id: "user", role: "user" }, parts: [{ type: "text", text: executionPromptMarker("current") }] },
+      { ...assistant("parent", [task("sub", 200), task("other", 210, "completed")]), info: { id: "parent", role: "assistant", parentID: "user", runtimeVersion: 2 } },
+    ],
+    children: [
+      { session: { id: "old", parentID: "root", agent: "sub", time: { created: 100 } }, messages: [assistant("old-msg", [])], status: "busy" },
+      { session: { id: "child", parentID: "root", agent: "sub", time: { created: 201 } }, messages: [assistant("child-msg", [task("leaf", 220)])], status: "busy" },
+      { session: { id: "leaf", parentID: "child", agent: "leaf", time: { created: 221 } }, messages: [assistant("leaf-msg", [])], status: "busy" },
+      { session: { id: "unrelated", parentID: "root", agent: "other", time: { created: 211 } }, messages: [assistant("other-msg", [])], status: "busy" },
+    ],
+    statuses: {},
+    questions: [{ id: "old-question", sessionID: "old", questions: [] }],
+    permissions: [
+      { id: "old-permission", sessionID: "old", source: { messageID: "old-msg" } },
+      { id: "leaf-permission", sessionID: "leaf", source: { messageID: "leaf-msg" }, permission: "read" },
+      { id: "stale-root", sessionID: "root", source: { messageID: "previous-message" } },
+      { id: "unrelated-permission", sessionID: "unrelated", source: { messageID: "other-msg" } },
+    ],
+    sessionIds: new Set(["root", "old", "child", "leaf", "unrelated"]),
+  };
+  const active = scopeExecutionState(state, { promptMarker: "current" }, "root");
+  assert.deepEqual([...active.sessionIds].sort(), ["child", "leaf", "root"]);
+  assert.deepEqual(active.permissions.map((item) => item.id), ["leaf-permission"]);
+  assert.deepEqual(active.questions, []);
+  const trace = createHash("sha256").update("leaf").digest("hex").slice(0, 12);
+  const detail = collaborationDetail(collaborationDisplayState(state, active), trace);
+  assert.equal(detail.collaboration.status, "waiting_permission");
+  assert.equal(detail.pendingPermissions[0].id, "leaf-permission");
+});
+
+test("大量历史子会话不会挤掉正在等待授权的嵌套子会话", () => {
+  const sessions = [
+    ...Array.from({ length: 30 }, (_, index) => ({
+      id: `old-${index}`, parentID: "root", time: { created: index },
+    })),
+    { id: "child", parentID: "root", time: { created: 31 } },
+    { id: "leaf", parentID: "child", time: { created: 32 } },
+    { id: "foreign", parentID: "other-root", time: { created: 33 } },
+  ];
+  const selected = selectRuntimeDescendants(sessions, "root", ["leaf", "foreign"]);
+  assert.equal(selected.length, 24);
+  assert.ok(selected.some((item) => item.id === "child"));
+  assert.ok(selected.some((item) => item.id === "leaf"));
+  assert.ok(!selected.some((item) => item.id === "old-0" || item.id === "foreign"));
+});
+
+test("协作显示采用自动授权后的最新请求和子会话状态", async () => {
+  const { createHash } = await import("node:crypto");
+  const trace = createHash("sha256").update("child-a").digest("hex").slice(0, 12);
+  const initial = { ...childState(), questions: [], permissions: [{ id: "p", sessionID: "child-a" }] };
+  const afterApproval = { ...initial, permissions: [], children: [{ ...initial.children[0], status: "idle" }] };
+  const detail = collaborationDetail(collaborationDisplayState(initial, afterApproval), trace);
+  assert.equal(detail.collaboration.status, "completed");
+  assert.deepEqual(detail.pendingPermissions, []);
 });
 
 test("V2 会话 subagent 权限默认禁止，仅明确允许已分配的协作智能体", () => {

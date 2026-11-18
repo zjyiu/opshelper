@@ -25,7 +25,7 @@ import { useWorkspace, WorkspaceMenuButton } from "../workspace-shell";
 import { uploadFile, type FileInfo } from "../file-manager/utils";
 import { AgentMark, type Assistant } from "./assistant";
 import { AttachmentPanel } from "./attachment-panel";
-import { CollaborationBar } from "./collaboration-bar";
+import { usePageRefresh } from "../navigation-refresh";
 import { Composer } from "./composer";
 import { Conversation } from "./conversation";
 import { useConversationDraft, useConversationDraftStore } from "./conversation-draft-provider";
@@ -165,11 +165,12 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     setAttachments,
     ready: draftsReady,
   } = useConversationDraft(draftKey);
-  const { drafts, setDraft, updateDraft, moveDraft } = useConversationDraftStore();
+  const { drafts, setDraft, updateDraft, moveDraft, authorizations, setAuthorization, moveAuthorization } = useConversationDraftStore();
   const failedDraftPrefix = `${conversationDraftKey(null, activeAgent?.key ?? null)}:failed:`;
   const failedDrafts = Object.entries(drafts).filter(([key]) => key.startsWith(failedDraftPrefix));
   const [availableModels, setAvailableModels] = useState(models);
   const [model, setModel] = useState(defaultModel);
+  const autoApprovePermissions = authorizations[draftKey] ?? true;
   const [notice, setNotice] = useState<string | null>(null);
   const [referenceFilesOpen, setReferenceFilesOpen] = useState(false);
   const closeReferenceFiles = useCallback(() => setReferenceFilesOpen(false), []);
@@ -249,6 +250,10 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       return null;
     }
   }, [updateConversation]);
+
+  usePageRefresh(() => {
+    if (activeConversationRef.current) void refreshConversation(activeConversationRef.current);
+  });
 
   const waitForStreamReady = useCallback((conversationId: string) => {
     const connection = streamConnectionRef.current;
@@ -536,9 +541,12 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         if (activeConversationRef.current === conversationIdAtSend && generation === conversationGenerationRef.current) {
           // A reopened blank view shares this key, but owns a different generation's draft.
           moveDraft(draftKey, submittedDraftKey);
+          moveAuthorization(draftKey, submittedDraftKey);
           activeConversationRef.current = conversationId;
           activateConversation(conversationId, activeAssistant.id);
           router.replace(`/chat?conversation=${encodeURIComponent(conversationId)}`);
+        } else {
+          setAuthorization(submittedDraftKey, autoApprovePermissions);
         }
         updateOptimisticMessages((current) => current.map((item) =>
           item.clientId === clientId ? { ...item, conversationId } : item));
@@ -550,7 +558,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         text,
         readyAttachments,
         model,
-        false,
+        autoApprovePermissions,
       );
       if (pendingRequestRef.current?.signature !== signature) {
         pendingRequestRef.current = { signature, requestKey: createClientId() };
@@ -567,7 +575,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
           mime: item.mime,
         })),
         ...(model ? { model } : {}),
-        autoApprovePermissions: false,
+        autoApprovePermissions,
       });
       pendingRequestRef.current = null;
       await refreshHome(conversationId, { activate: false });
@@ -587,7 +595,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         }));
       }
       const message = submittedConversationId
-        ? `${error instanceof Error ? error.message : "发送失败"}。草稿已保留，网络恢复后再次发送会继续核对同一请求。`
+        ? `${error instanceof Error ? error.message : "发送失败"}。草稿已保留，保持原内容、附件、模型及自动授权设置后再次发送会继续核对同一请求。`
         : `${error instanceof Error ? error.message : "创建会话失败"}。未发送草稿已单独保留，可在该智能体的新会话中恢复。`;
       if (conversationDraftKey(activeConversationRef.current, activeAssistant.id) === submittedDraftKey) setNotice(message);
       else toast.error(message);
@@ -598,12 +606,14 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
   }, [
     activeAssistant,
     activateConversation,
+    autoApprovePermissions,
     attachments,
     currentMessages,
     draftKey,
     draftsReady,
     input,
     moveDraft,
+    moveAuthorization,
     model,
     navigating,
     readyAttachments,
@@ -613,6 +623,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     updateDraft,
     updateOptimisticMessages,
     setDraft,
+    setAuthorization,
     setInput,
     setAttachments,
     waitForStreamReady,
@@ -833,6 +844,8 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             onRetryFrom={retryResponse}
             forkingMessageId={forkingMessageId}
             executions={visibleSnapshot?.executions ?? []}
+            collaborations={visibleSnapshot?.collaborations ?? []}
+            conversationId={activeConversationId}
             reconnecting={snapshotUnavailable || streamDisconnected}
             onReconcile={(executionId) => void reconcileExecution(executionId)
               .then(() => activeConversationRef.current
@@ -870,26 +883,19 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
                 : null).catch((error) => setNotice(error instanceof Error ? error.message : "提交失败"))}
             />
           ) : null}
-          {!currentExecution?.autoApprovePermissions
-            ? visibleSnapshot?.pendingPermissions.map((permission) => currentExecution ? (
-              <PermissionCard
-                key={permission.id}
-                permission={{ ...permission, sessionId: "" }}
-                onRespond={(response) => void replyExecutionPermission(
-                  currentExecution.id,
-                  permission.id,
-                  response,
-                ).then(() => activeConversationId
-                  ? refreshConversation(activeConversationId)
-                  : null).catch((error) => setNotice(error instanceof Error ? error.message : "提交失败"))}
-              />
-            ) : null)
-            : null}
-          {/* 协作过程贴在输入框上沿：留在分割线上方的固定条里，不混进可滚动的对话正文。 */}
-          <CollaborationBar
-            collaborations={visibleSnapshot?.collaborations ?? []}
-            conversationId={activeConversationId}
-          />
+          {visibleSnapshot?.pendingPermissions.map((permission) => currentExecution ? (
+            <PermissionCard
+              key={permission.id}
+              permission={{ ...permission, sessionId: "" }}
+              onRespond={(response) => void replyExecutionPermission(
+                currentExecution.id,
+                permission.id,
+                response,
+              ).then(() => activeConversationId
+                ? refreshConversation(activeConversationId)
+                : null).catch((error) => setNotice(error instanceof Error ? error.message : "提交失败"))}
+            />
+          ) : null)}
           <Composer
             key={draftKey}
             value={input}
@@ -905,6 +911,8 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             stopping={stopping}
             models={availableModels}
             model={model}
+            autoApprovePermissions={autoApprovePermissions}
+            onAutoApprovePermissionsChange={(enabled) => setAuthorization(draftKey, enabled)}
             onModelChange={(next) => {
               setModel(next);
               try {

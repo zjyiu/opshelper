@@ -50,6 +50,7 @@ import { ConversationArchiveAction } from "./chat/conversation-archive-action";
 import { ConversationDraftProvider, useConversationDraftStore } from "./chat/conversation-draft-provider";
 import { conversationDraftKey, hasDraft } from "./chat/conversation-drafts";
 import { UserProfileMenu } from "./user-profile-menu";
+import { refreshCurrentPage, useRouteRefresh } from "./navigation-refresh";
 
 const CHAT_CONTEXT_KEY = "opshelper:conversation";
 const CHAT_AGENT_KEY = "opshelper:agent";
@@ -114,6 +115,7 @@ export function WorkspaceShell({
 }>) {
   const pathname = usePathname();
   const router = useRouter();
+  useRouteRefresh();
   const searchParams = useSearchParams();
   const [agents, setAgents] = useState<ConversationAgent[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -136,6 +138,7 @@ export function WorkspaceShell({
   const activeAgentKeyRef = useRef<string | null>(null);
   const activeConversationRef = useRef<string | null>(null);
   const navigationGenerationRef = useRef(0);
+  const homeRefreshSequenceRef = useRef(0);
   const handledNewRouteRef = useRef<string | null>(null);
   // 不在会话列表里的对话（定时任务）每换一次链接只尝试打开一次，避免重复请求和提示。
   const requestedConversationRef = useRef<string | null>(null);
@@ -167,7 +170,9 @@ export function WorkspaceShell({
 
   const refreshHome = useCallback(async (preferredConversationId?: string | null, { activate = true }: { activate?: boolean } = {}) => {
     const generation = navigationGenerationRef.current;
+    const sequence = ++homeRefreshSequenceRef.current;
     const home = await listConversations();
+    if (sequence !== homeRefreshSequenceRef.current) return;
     setAgents(home.agents);
     setConversations(home.conversations);
     setExecutionBlockedReason(home.executionBlockedReason);
@@ -187,7 +192,7 @@ export function WorkspaceShell({
         .then((snapshot) => snapshot.conversation)
         .catch(() => null);
     }
-    if (generation !== navigationGenerationRef.current) return;
+    if (sequence !== homeRefreshSequenceRef.current || generation !== navigationGenerationRef.current) return;
     const requestedAgentKey = requestedConversation?.leadAgentKey
       ?? activeAgentKeyRef.current
       ?? storedValue(CHAT_AGENT_KEY);
@@ -265,7 +270,11 @@ export function WorkspaceShell({
 
   useEffect(() => {
     setShowSidebar(false);
-  }, [pathname]);
+    if (!loading) {
+      void refreshHome(undefined, { activate: false })
+        .catch((error) => toast.error(error instanceof Error ? error.message : "刷新对话列表失败"));
+    }
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeAgent = useMemo(
     () => agents.find((item) => item.key === activeAgentKey) ?? agents[0] ?? null,
@@ -516,9 +525,11 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
     startNewConversation,
     removeConversation,
     renameConversationTitle,
+    refreshHome,
     showSidebar,
     setShowSidebar,
   } = useWorkspace();
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchButtonRef = useRef<HTMLButtonElement>(null);
@@ -677,6 +688,10 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
 
   const toggleConversationGroup = (agentKey: string) => {
     const currentlyExpanded = expandedAgentKey ?? currentAgentGroupKey;
+    if (currentlyExpanded !== agentKey) {
+      void refreshHome(undefined, { activate: false })
+        .catch((error) => toast.error(error instanceof Error ? error.message : "刷新对话列表失败"));
+    }
     setExpandedAgentKey(currentlyExpanded === agentKey ? "" : agentKey);
   };
 
@@ -726,11 +741,17 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
             ref={newConversationButtonRef}
             type="button"
             className="opshelper-new-conversation"
-            disabled={loading || agents.length === 0}
+            disabled={loading}
             aria-haspopup="menu"
             aria-expanded={newConversationMenuOpen}
             aria-controls={newConversationMenuOpen ? newConversationMenuId : undefined}
-            onClick={() => setNewConversationMenuOpen((open) => !open)}
+            onClick={() => {
+              if (!newConversationMenuOpen) {
+                void refreshHome(undefined, { activate: false })
+                  .catch((error) => toast.error(error instanceof Error ? error.message : "刷新智能体列表失败"));
+              }
+              setNewConversationMenuOpen((open) => !open);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Escape" && newConversationMenuOpen) {
                 event.preventDefault();
@@ -756,6 +777,7 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
               }}
             >
               <div className="opshelper-new-conversation-hint">选择智能体</div>
+              {agents.length === 0 ? <div className="opshelper-new-conversation-hint">暂无可用智能体</div> : null}
               {agents.map((agent, index) => (
                 <button
                   key={agent.key}
@@ -780,9 +802,13 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
           <Link
             className={`opshelper-shortcut${pathname.endsWith("/agents") ? " active" : ""}`}
             href="/agents"
+            prefetch={false}
             title="智能体目录：创建并查看智能体"
             aria-current={pathname.endsWith("/agents") ? "page" : undefined}
-            onClick={() => setShowSidebar(false)}
+            onNavigate={() => {
+              setShowSidebar(false);
+              if (pathname.endsWith("/agents")) refreshCurrentPage(router);
+            }}
           >
             <Image
               className="opshelper-icon"
@@ -797,9 +823,13 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
           <Link
             className={`opshelper-shortcut${pathname.endsWith("/schedules") ? " active" : ""}`}
             href="/schedules"
+            prefetch={false}
             title="定时任务：个人计划和执行记录"
             aria-current={pathname.endsWith("/schedules") ? "page" : undefined}
-            onClick={() => setShowSidebar(false)}
+            onNavigate={() => {
+              setShowSidebar(false);
+              if (pathname.endsWith("/schedules")) refreshCurrentPage(router);
+            }}
           >
             <IconClock />
             <span className="opshelper-shortcut-label">定时任务</span>
@@ -807,9 +837,13 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
           <Link
             className={`opshelper-shortcut${pathname.endsWith("/files") ? " active" : ""}`}
             href="/files"
+            prefetch={false}
             title="我的文件：完整文件管理"
             aria-current={pathname.endsWith("/files") ? "page" : undefined}
-            onClick={() => setShowSidebar(false)}
+            onNavigate={() => {
+              setShowSidebar(false);
+              if (pathname.endsWith("/files")) refreshCurrentPage(router);
+            }}
           >
             <IconFolder />
             <span className="opshelper-shortcut-label">我的文件</span>
@@ -894,9 +928,14 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                           <Link
                             className="opshelper-conv-main"
                             href={`/chat?conversation=${encodeURIComponent(item.id)}`}
-                            onClick={() => {
+                            onNavigate={() => {
                               setShowSidebar(false);
                               expandConversationGroup(item.leadAgentKey);
+                              if (pathname.endsWith("/chat") && item.id === activeConversationId) {
+                                refreshCurrentPage(router);
+                                void refreshHome(undefined, { activate: false })
+                                  .catch((error) => toast.error(error instanceof Error ? error.message : "刷新对话列表失败"));
+                              }
                             }}
                             // 侧栏标题单行截断（字号抬高后更早截断），完整标题用原生提示补上。
                             title={fullConversationTitle(item.title)}

@@ -15,6 +15,8 @@ export function Composer({
   models = [],
   model = "",
   onModelChange,
+  autoApprovePermissions,
+  onAutoApprovePermissionsChange,
   attachments,
   onAddFiles,
   onRequestReference,
@@ -37,6 +39,8 @@ export function Composer({
   models?: ChatModelOption[];
   model?: string;
   onModelChange?: (model: string) => void;
+  autoApprovePermissions: boolean;
+  onAutoApprovePermissionsChange: (enabled: boolean) => void;
   attachments: Attachment[];
   onAddFiles: (files: File[]) => void;
   onRequestReference: () => void;
@@ -58,6 +62,7 @@ export function Composer({
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const composingRef = useRef(false);
   const keyboardHintId = useId();
+  const autoApproveHintId = useId();
   // The `@` autocomplete: `range` is the [start,end) span of the `@query` token
   // in the textarea that a pick should replace.
   const [mention, setMention] = useState<
@@ -452,7 +457,25 @@ export function Composer({
           </button>
         </div>
       </div>
-      <div className="opshelper-composer-keyboard-hint" id={keyboardHintId}>Enter 发送/排队 · Shift+Enter 换行</div>
+      <div className="opshelper-composer-footer">
+        <label
+          className="opshelper-auto-approve"
+          title="为主智能体及协作智能体的工具请求自动选择允许一次，仅对之后发送的任务生效；提问仍需手动回答"
+        >
+          <input
+            type="checkbox"
+            checked={autoApprovePermissions}
+            disabled={readOnly}
+            onChange={(event) => onAutoApprovePermissionsChange(event.target.checked)}
+            aria-describedby={autoApproveHintId}
+          />
+          <span>自动授权</span>
+        </label>
+        <span className="opshelper-sr-only" id={autoApproveHintId}>
+          为主智能体及协作智能体的工具请求自动选择允许一次，仅对之后发送的任务生效；提问仍需手动回答。
+        </span>
+        <div className="opshelper-composer-keyboard-hint" id={keyboardHintId}>Enter 发送/排队 · Shift+Enter 换行</div>
+      </div>
     </div>
   );
 }
