@@ -119,6 +119,9 @@ const defaultImageRule =
 const defaultLinkRule =
   markdown.renderer.rules.link_open ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+const defaultLinkCloseRule =
+  markdown.renderer.rules.link_close ??
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
 
 // 工作区文件链接改写为带登录态的下载地址；外部链接保持原样。
 markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
@@ -131,8 +134,19 @@ markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   }
   if (/^\/workspace\/[^?#]+$/.test(href) && !href.split("/").includes("..")) {
     token.attrSet("href", `${FILES_API}/download?path=${encodeURIComponent(href)}`);
+    const closingToken = tokens.slice(idx + 1).find((candidate) => candidate.type === "link_close");
+    if (closingToken) closingToken.meta = { ...closingToken.meta, workspaceFilePath: href };
   }
   return defaultLinkRule(tokens, idx, options, env, self);
+};
+
+markdown.renderer.rules.link_close = (tokens, idx, options, env, self) => {
+  const rendered = defaultLinkCloseRule(tokens, idx, options, env, self);
+  const path = (tokens[idx].meta as { workspaceFilePath?: string } | null)?.workspaceFilePath;
+  const displayPath = path?.slice("/workspace".length);
+  return displayPath
+    ? `${rendered}<span class="opshelper-workspace-file-path">路径：${markdown.utils.escapeHtml(displayPath)}</span>`
+    : rendered;
 };
 
 markdown.renderer.rules.image = (tokens, idx, options, env, self) => {

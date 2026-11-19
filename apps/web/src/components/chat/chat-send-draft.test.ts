@@ -338,12 +338,13 @@ for (const blockedBy of ["sending", "forking", "navigation", "draft loading"] as
     let added = false;
     const context = vm.createContext({
       useCallback: (fn: unknown) => fn,
+      activeAgent: { key: "network" },
       sendingRef: { current: blockedBy === "sending" },
       forkingRef: { current: blockedBy === "forking" },
       navigating: blockedBy === "navigation", draftsReady: blockedBy !== "draft loading",
       setAttachments: () => { added = true; },
       createClientId: () => "upload", guessMime: () => "text/plain",
-      uploadFile: async () => ({ path: "/workspace/file.txt" }), CHAT_UPLOAD_DIR: "/workspace/.uploads",
+      uploadFile: async () => ({ path: "/workspace/file.txt" }),
     });
     vm.runInContext(ts.transpileModule(`globalThis.addFiles = ${initializer};`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
     context.addFiles([{ name: "file.txt", type: "text/plain" }]);

@@ -140,18 +140,30 @@ export function executionUsesOutputDirectory(inputText: string, source: Executio
   return source !== ExecutionSource.CHAT && inputText.includes("{{output_dir}}");
 }
 
+export function executionOutputDirectory(leadAgentKey: string, startedAt: Date) {
+  const cstTime = new Date(startedAt.getTime() + 8 * 60 * 60 * 1000);
+  const timestamp = cstTime.toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+  return `outputs/${leadAgentKey}/${timestamp}`;
+}
+
 export function resolveExecutionPromptText(
   inputText: string,
   source: ExecutionSource,
-  executionId: string,
+  leadAgentKey = "default",
+  startedAt = new Date(0),
 ) {
   if (!executionUsesOutputDirectory(inputText, source)) return inputText;
-  return inputText.replaceAll("{{output_dir}}", `outputs/${executionId}`);
+  return inputText.replaceAll("{{output_dir}}", executionOutputDirectory(leadAgentKey, startedAt));
 }
 
-export function executionInteractionGuidance(source: ExecutionSource) {
+export function executionInteractionGuidance(
+  source: ExecutionSource,
+  leadAgentKey = "default",
+  startedAt = new Date(0),
+) {
   if (source !== ExecutionSource.CHAT) return "";
-  return "平台交互要求：需要保存生成的文件或目录时，一律写入 /workspace/outputs/ 下（可自行创建子目录），不要直接写在 /workspace 根目录；用户上传的文件位于 /workspace/chat-uploads/。生成或修改文件后，必须在回答中为每个交付文件附上 Markdown 下载链接，例如 [下载报告](/workspace/outputs/report.docx)，不要只报告保存路径；图片也可用 Markdown 图片语法展示。只有完成当前请求确实需要读取环境或执行操作时才调用工具；身份、能力和使用方式等说明性问题不要先检查工作区，请直接回答，优先控制在 3 至 6 个要点，避免重复自我介绍。平台会根据真实运行事件展示操作记录；被问及工具或技能使用情况时不得凭记忆补造未发生的调用，可提示用户查看操作记录。委派子智能体时准确保留用户原意；向智能体发送问候表示让该智能体接收并回复问候，不得擅自改写为 HTTP 请求或向外部服务发送消息。";
+  const outputDirectory = executionOutputDirectory(leadAgentKey, startedAt);
+  return `平台交互要求：需要保存生成的文件或目录时，写入本轮专属目录 /workspace/${outputDirectory}/；用户上传的文件位于 /workspace/chat-uploads/${leadAgentKey}/。生成或修改文件后，必须在回答中为每个交付文件附上 Markdown 下载链接，例如 [下载报告](/workspace/${outputDirectory}/report.docx)，不要只报告保存路径；图片也可用 Markdown 图片语法展示。只有完成当前请求确实需要读取环境或执行操作时才调用工具；身份、能力和使用方式等说明性问题不要先检查工作区，请直接回答，优先控制在 3 至 6 个要点，避免重复自我介绍。平台会根据真实运行事件展示操作记录；被问及工具或技能使用情况时不得凭记忆补造未发生的调用，可提示用户查看操作记录。委派子智能体时准确保留用户原意；向智能体发送问候表示让该智能体接收并回复问候，不得擅自改写为 HTTP 请求或向外部服务发送消息。`;
 }
 
 function textOfParts(parts: unknown): string {
@@ -279,9 +291,26 @@ function sanitizeRuntimeMessage(message: unknown) {
 }
 
 function redactExecutionOutputPathsInText(text: string, executionId: string) {
-  return text
-    .replaceAll(`/workspace/outputs/${executionId}`, "结果文件")
-    .replaceAll(`outputs/${executionId}`, "结果文件");
+  const preservedLinks: string[] = [];
+  const withPreservedLinks = text.replace(/(!?\[[^\]]*\]\()([^)]+)(\))/g, (match, _open, target: string) => {
+    if (!/(?:\/workspace\/)?outputs\//.test(target)) return match;
+    const placeholder = `OPSHELPER_OUTPUT_LINK_${preservedLinks.length}_END`;
+    preservedLinks.push(match);
+    return placeholder;
+  });
+  const escapedId = executionId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let redacted = withPreservedLinks.replace(
+    new RegExp(`(?:/workspace/)?outputs/(?:[^/\\s]+/)?${escapedId}(?=/|[\\s)"'\`]|$)`, "g"),
+    "结果文件",
+  );
+  redacted = redacted.replace(
+    /(?:\/workspace\/)?outputs\/[^/\s]+\/\d{8}-\d{6}(?=\/|[\s)"'`]|$)/g,
+    "结果文件",
+  );
+  preservedLinks.forEach((link, index) => {
+    redacted = redacted.replace(`OPSHELPER_OUTPUT_LINK_${index}_END`, link);
+  });
+  return redacted;
 }
 
 function redactExecutionOutputPaths(value: unknown, executionId: string): unknown {
@@ -1158,18 +1187,28 @@ export async function enqueueExecution(input: {
 }
 
 export function executionPromptPayload(
-  execution: Pick<Execution, "id" | "inputText" | "source" | "attachments" | "promptMarker">,
+  execution: Pick<Execution, "id" | "inputText" | "source" | "attachments" | "promptMarker"> &
+    Partial<Pick<Execution, "leadAgentKey" | "startedAt" | "createdAt">>,
   plannedCollaborators: string[] = [],
 ) {
   const attachments = asAttachments(execution.attachments);
   const viewable = attachments.filter((file) =>
     file.mime.startsWith("image/") || file.mime.startsWith("text/") || file.mime === "application/pdf",
   );
-  let text = resolveExecutionPromptText(execution.inputText, execution.source, execution.id);
-  const interactionGuidance = executionInteractionGuidance(execution.source);
-  if (interactionGuidance) {
-    text = `${text}${text ? "\n\n" : ""}${interactionGuidance}`;
-  }
+  const leadAgentKey = execution.leadAgentKey ?? "default";
+  const startedAt = execution.startedAt ?? execution.createdAt ?? new Date(0);
+  const outputDirectory = executionOutputDirectory(leadAgentKey, startedAt);
+  let text = resolveExecutionPromptText(
+    execution.inputText,
+    execution.source,
+    leadAgentKey,
+    startedAt,
+  );
+  const guidance = [
+    executionInteractionGuidance(execution.source, leadAgentKey, startedAt),
+    `文件保存要求：如需生成或修改交付文件，保存到本轮专属目录 /workspace/${outputDirectory}/。此目录已准备好；不要覆盖其中已有文件，遇到同名文件时为新文件添加序号后缀，例如“报告 (1).docx”，并递增序号直到文件名可用。`,
+  ].filter(Boolean).join("\n");
+  text = `${text}${text ? "\n\n" : ""}${guidance}`;
   if (attachments.length) {
     // Include the actual path even when V2 also embeds a viewable attachment.
     // Providers can otherwise ask the read tool for /workspace/<filename>.
@@ -1216,7 +1255,12 @@ async function markInterrupted(execution: Execution, reason: string) {
 async function finishExecution(execution: Execution, status: ExecutionStatus, result: string | null, error: string | null) {
   idleObservationSince.delete(execution.id);
   const now = new Date();
-  const outputFiles = await finalizeOutputFiles(execution.userId, execution.id);
+  const outputFiles = await finalizeOutputFiles(
+    execution.userId,
+    execution.leadAgentKey,
+    execution.id,
+    execution.startedAt ?? execution.createdAt,
+  );
   await prisma.$transaction([
     prisma.execution.update({
       where: { id: execution.id },
@@ -1246,31 +1290,23 @@ async function finishExecution(execution: Execution, status: ExecutionStatus, re
   loopKick?.();
 }
 
-async function prepareOutputDirectory(userId: string, executionId: string) {
-  const runtimePath = `/workspace/outputs/${executionId}`;
+async function prepareOutputDirectory(userId: string, leadAgentKey: string, startedAt: Date) {
+  const runtimePath = `/workspace/${executionOutputDirectory(leadAgentKey, startedAt)}`;
   const hostPath = await resolveUserPathSafe(userId, runtimePath);
   await mkdir(hostPath, { recursive: true });
   return hostPath;
 }
 
-async function collectOutputFiles(userId: string, executionId: string) {
-  const runtimePath = `/workspace/outputs/${executionId}`;
-  const root = await resolveUserPathSafe(userId, runtimePath);
-  const rootInfo = await lstat(root).catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT" || error.code === "ENOTDIR") return null;
-    throw error;
-  });
-  if (!rootInfo || !rootInfo.isDirectory() || rootInfo.isSymbolicLink()) return [];
-
+async function collectOutputFiles(userId: string, leadAgentKey: string, executionId: string, startedAt: Date) {
   const output: ConversationAttachment[] = [];
-  async function walk(directory: string, relative: string) {
+  async function walk(directory: string, runtimePath: string, relative: string) {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const hostPath = `${directory}/${entry.name}`;
       const info = await lstat(hostPath);
       if (info.isSymbolicLink()) continue;
       const nextRelative = relative ? `${relative}/${entry.name}` : entry.name;
       if (info.isDirectory()) {
-        await walk(hostPath, nextRelative);
+        await walk(hostPath, runtimePath, nextRelative);
       } else if (info.isFile()) {
         output.push({
           path: `${runtimePath}/${nextRelative}`,
@@ -1280,19 +1316,49 @@ async function collectOutputFiles(userId: string, executionId: string) {
       }
     }
   }
-  await walk(root, "");
+  const runtimePaths = [
+    `/workspace/${executionOutputDirectory(leadAgentKey, startedAt)}`,
+    `/workspace/outputs/${executionId}`,
+  ];
+  for (const runtimePath of runtimePaths) {
+    const root = await resolveUserPathSafe(userId, runtimePath);
+    const rootInfo = await lstat(root).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") return null;
+      throw error;
+    });
+    if (!rootInfo || !rootInfo.isDirectory() || rootInfo.isSymbolicLink()) continue;
+    await walk(root, runtimePath, "");
+  }
   return output;
 }
 
-async function removeEmptyOutputDirectory(userId: string, executionId: string) {
-  const root = await resolveUserPathSafe(userId, `/workspace/outputs/${executionId}`);
-  await rm(root, { recursive: true, force: true });
+async function removeEmptyOutputDirectory(userId: string, leadAgentKey: string, executionId: string, startedAt: Date) {
+  const runtimePaths = [
+    `/workspace/${executionOutputDirectory(leadAgentKey, startedAt)}`,
+    `/workspace/outputs/${executionId}`,
+  ];
+  for (const runtimePath of runtimePaths) {
+    const root = await resolveUserPathSafe(userId, runtimePath);
+    const info = await lstat(root).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT" || error.code === "ENOTDIR") return null;
+      throw error;
+    });
+    if (!info || !info.isDirectory() || info.isSymbolicLink()) continue;
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
-async function finalizeOutputFiles(userId: string, executionId: string) {
+async function finalizeOutputFiles(
+  userId: string,
+  leadAgentKey: string,
+  executionId: string,
+  startedAt: Date,
+) {
   try {
-    const outputFiles = await collectOutputFiles(userId, executionId);
-    if (outputFiles.length === 0) await removeEmptyOutputDirectory(userId, executionId);
+    const outputFiles = await collectOutputFiles(userId, leadAgentKey, executionId, startedAt);
+    if (outputFiles.length === 0) {
+      await removeEmptyOutputDirectory(userId, leadAgentKey, executionId, startedAt);
+    }
     return outputFiles;
   } catch {
     return [];
@@ -1306,20 +1372,35 @@ export async function pruneEmptyExecutionOutputDirectories() {
         in: [ExecutionStatus.SUCCEEDED, ExecutionStatus.FAILED, ExecutionStatus.CANCELLED],
       },
     },
-    select: { id: true, userId: true, outputFiles: true },
+    select: { id: true, userId: true, leadAgentKey: true, startedAt: true, createdAt: true, outputFiles: true },
   });
   let removed = 0;
   for (const execution of executions) {
     if (execution.outputFiles && asAttachments(execution.outputFiles).length > 0) continue;
     try {
-      const root = await resolveUserPathSafe(
-        execution.userId,
+      const runtimePaths = [
+        `/workspace/${executionOutputDirectory(execution.leadAgentKey, execution.startedAt ?? execution.createdAt)}`,
         `/workspace/outputs/${execution.id}`,
-      );
-      const info = await lstat(root);
-      if (!info.isDirectory() || info.isSymbolicLink()) continue;
-      if ((await collectOutputFiles(execution.userId, execution.id)).length > 0) continue;
-      await removeEmptyOutputDirectory(execution.userId, execution.id);
+      ];
+      let foundDirectory = false;
+      let unsafeDirectory = false;
+      for (const runtimePath of runtimePaths) {
+        const root = await resolveUserPathSafe(execution.userId, runtimePath);
+        const info = await lstat(root).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT" || error.code === "ENOTDIR") return null;
+          throw error;
+        });
+        if (!info) continue;
+        if (!info.isDirectory() || info.isSymbolicLink()) {
+          unsafeDirectory = true;
+          break;
+        }
+        foundDirectory = true;
+      }
+      if (!foundDirectory || unsafeDirectory) continue;
+      const startedAt = execution.startedAt ?? execution.createdAt;
+      if ((await collectOutputFiles(execution.userId, execution.leadAgentKey, execution.id, startedAt)).length > 0) continue;
+      await removeEmptyOutputDirectory(execution.userId, execution.leadAgentKey, execution.id, startedAt);
       removed += 1;
     } catch {
       // Best-effort startup cleanup: preserve service availability if one user path is unreadable.
@@ -1910,9 +1991,11 @@ async function dispatchExecution(execution: Execution) {
       where: { id: current.id },
       data: { attachmentDigests },
     });
-    if (executionUsesOutputDirectory(current.inputText, current.source)) {
-      await prepareOutputDirectory(current.userId, current.id);
-    }
+    await prepareOutputDirectory(
+      current.userId,
+      current.leadAgentKey,
+      current.startedAt ?? current.createdAt,
+    );
 
     // The activeExecutionId slot is already durable. Docker and HTTP calls stay
     // outside the database transaction, so a slow container never holds a DB
@@ -2297,7 +2380,12 @@ export async function reconcileInterruptedExecution(userId: string, executionId:
     const hasError = currentExecutionMessages(state.rootMessages, executionPromptMarker(execution.promptMarker))
       .some((message) => Boolean(messageError(message)));
     const incomplete = !complete && !execution.cancelRequestedAt;
-    const outputFiles = await finalizeOutputFiles(userId, execution.id);
+    const outputFiles = await finalizeOutputFiles(
+      userId,
+      execution.leadAgentKey,
+      execution.id,
+      execution.startedAt ?? execution.createdAt,
+    );
     await prisma.$transaction([
       prisma.execution.update({
         where: { id: execution.id },

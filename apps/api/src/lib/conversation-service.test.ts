@@ -22,6 +22,7 @@ import {
   executionInteractionGuidance,
   executionPromptMarker,
   executionPromptPayload,
+  executionOutputDirectory,
   executionUsesOutputDirectory,
   ownedConversationWhere,
   resolveExecutionPromptText,
@@ -65,12 +66,16 @@ test("V2 提示保留任意附件路径，但不把 ZIP、表格和二进制文�
   ];
   const payload = executionPromptPayload({
     id: "execution-files", inputText: "检查附件", source: ExecutionSource.CHAT,
-    attachments, promptMarker: "prompt-files",
+    attachments, promptMarker: "prompt-files", leadAgentKey: "network",
+    startedAt: new Date("2026-11-19T03:07:08.000Z"),
   });
 
   assert.deepEqual(payload.files, []);
   for (const file of attachments) assert.ok(payload.text.includes(`${file.filename}（${file.path}）`));
   assert.ok(payload.text.includes("检查附件"));
+  assert.ok(payload.text.includes("/workspace/outputs/network/20261119-110708/"));
+  assert.ok(payload.text.includes("/workspace/chat-uploads/network/"));
+  assert.ok(payload.text.includes("报告 (1).docx"));
   assert.ok(payload.text.includes(executionPromptMarker("prompt-files")));
   assert.equal(payload.id, "msg_opshelper_promptfiles");
   assert.equal(payload.delivery, "queue");
@@ -222,7 +227,7 @@ test("普通对话不解释或准备定时任务输出目录变量", () => {
   const input = "解释 {{output_dir}} 的含义";
   assert.equal(executionUsesOutputDirectory(input, ExecutionSource.CHAT), false);
   assert.equal(
-    resolveExecutionPromptText(input, ExecutionSource.CHAT, "execution-1"),
+    resolveExecutionPromptText(input, ExecutionSource.CHAT),
     input,
   );
 });
@@ -244,12 +249,17 @@ test("定时任务只在用户明确写入变量时使用输出目录", () => {
     resolveExecutionPromptText(
       "生成报告并保存到 {{output_dir}}/report.md，同时记录目录 {{output_dir}}。",
       ExecutionSource.SCHEDULED,
-      "execution-2",
+      "network",
+      new Date("2026-11-19T03:07:08.000Z"),
     ),
-    "生成报告并保存到 outputs/execution-2/report.md，同时记录目录 outputs/execution-2。",
+    "生成报告并保存到 outputs/network/20261119-110708/report.md，同时记录目录 outputs/network/20261119-110708。",
   );
   assert.equal(
-    resolveExecutionPromptText("只返回检查结论", ExecutionSource.SCHEDULE_MANUAL, "execution-3"),
+    executionOutputDirectory("storage", new Date("2026-11-19T03:07:08.000Z")),
+    "outputs/storage/20261119-110708",
+  );
+  assert.equal(
+    resolveExecutionPromptText("只返回检查结论", ExecutionSource.SCHEDULE_MANUAL),
     "只返回检查结论",
   );
 });
@@ -405,7 +415,7 @@ test("浏览器不显示当前执行的内部输出目录，普通用户文字�
       parts: [{
         id: "part-assistant",
         type: "text",
-        text: `报告已保存到 outputs/${executionId}/report.md，绝对目录为 /workspace/outputs/${executionId}/。`,
+        text: `报告已保存到 outputs/network/${executionId}/report.md，绝对目录为 /workspace/outputs/network/${executionId}/。`,
       }],
     },
     {
@@ -422,6 +432,33 @@ test("浏览器不显示当前执行的内部输出目录，普通用户文字�
   assert.equal(sanitized[1].parts[0].text, "报告已保存到 结果文件/report.md，绝对目录为 结果文件/。");
   assert.equal(sanitized[2].parts[0].text, `请解释 outputs/${executionId}`);
   assert.doesNotMatch(JSON.stringify(sanitized[1]), new RegExp(executionId));
+});
+
+test("输出文件 Markdown 链接保留真实路径供下载渲染，正文路径仍隐藏", () => {
+  const promptMarker = "link-path-marker";
+  const executionId = "execution-private";
+  const linkPath = "/workspace/outputs/network/20261119-110708/pagefault.png";
+  const sanitized = sanitizeRuntimeMessages([
+    {
+      info: { id: "message-user", role: "user" },
+      parts: [{ id: "part-user", type: "text", text: `生成图片\n\n${executionPromptMarker(promptMarker)}` }],
+    },
+    {
+      info: { id: "message-assistant", role: "assistant" },
+      parts: [{
+        id: "part-assistant",
+        type: "text",
+        text: `[下载 PNG](${linkPath})\n\n![缺页中断流程图](${linkPath})\n\n保存于 ${linkPath}`,
+      }],
+    },
+  ], [{
+    id: executionId, inputText: "生成图片", attachments: [], promptMarker,
+  }]) as Array<{ parts: Array<{ text: string }> }>;
+
+  assert.equal(
+    sanitized[1].parts[0].text,
+    `[下载 PNG](${linkPath})\n\n![缺页中断流程图](${linkPath})\n\n保存于 结果文件/pagefault.png`,
+  );
 });
 
 test("执行结果只保留模型回答，不包含推理内容", () => {

@@ -49,6 +49,16 @@ export const rootLabel = "工作目录";
 export const fileDragMimeType = "application/x-opshelper-file-paths";
 export const expandedPathsStorageKey = "opshelper.fileManager.expandedPaths";
 
+export function categorizeUploadPath(targetPath: string, agentKey: string) {
+  if (targetPath === rootPath || targetPath === `${rootPath}/chat-uploads`) {
+    return `${rootPath}/chat-uploads/${agentKey}`;
+  }
+  if (targetPath === `${rootPath}/outputs`) {
+    return `${rootPath}/outputs/${agentKey}`;
+  }
+  return targetPath;
+}
+
 export function readPersistedExpandedPaths(): Set<string> {
   const fallback = new Set([rootPath]);
   if (typeof window === "undefined") return fallback;

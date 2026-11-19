@@ -58,7 +58,6 @@ const ACTIVE_STATUSES: ExecutionSummary["status"][] = [
   "waiting_input",
 ];
 const CHAT_MODEL_KEY = "opshelper:model";
-const CHAT_UPLOAD_DIR = "chat-uploads";
 
 function createClientId() {
   const webCrypto = globalThis.crypto;
@@ -647,6 +646,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
 
   const addFiles = useCallback((files: File[]) => {
     if (!draftsReady || navigating || sendingRef.current || forkingRef.current) return;
+    const uploadDir = `chat-uploads/${activeAgent?.key ?? "unassigned"}`;
     for (const file of files) {
       const id = createClientId();
       setAttachments((current) => [...current, {
@@ -657,10 +657,11 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
         status: "uploading",
         source: "upload",
       }]);
-      void uploadFile(CHAT_UPLOAD_DIR, file, file.name, () => undefined)
+      void uploadFile(uploadDir, file, file.name, () => undefined)
         .then((result) => {
+          const filename = result.path.slice(result.path.lastIndexOf("/") + 1);
           setAttachments((current) => current.map((item) => item.id === id
-            ? { ...item, path: result.path, status: "ready" }
+            ? { ...item, filename, path: result.path, status: "ready" }
             : item));
         })
         .catch((error) => {
@@ -670,7 +671,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
           setNotice(error instanceof Error ? error.message : "附件上传失败");
         });
     }
-  }, [draftsReady, navigating, setAttachments]);
+  }, [activeAgent?.key, draftsReady, navigating, setAttachments]);
 
   const mention = useCallback((file: MentionFile) => {
     setAttachments((current) => current.some((item) => item.path === file.path)

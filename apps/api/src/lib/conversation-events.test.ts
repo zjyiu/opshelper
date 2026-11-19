@@ -85,13 +85,30 @@ test("中途重连不把缺失前缀的增量当成完整正文，最终快照�
 });
 
 test("流式分块不会短暂泄露执行路径或内部标记", () => {
-  const raw = "报告：/workspace/outputs/execution-secret/report.md\n<!-- opshelper-execution:private-marker -->完成";
+  const raw = "报告：/workspace/outputs/agent1/execution-secret/report.md\n<!-- opshelper-execution:private-marker -->完成";
   for (let end = 1; end <= raw.length; end++) {
     const visible = safeStreamText(raw.slice(0, end), ["execution-secret"], false);
     assert.doesNotMatch(visible, /outputs\/|execution-secret|opshelper-execution|private-marker/);
   }
   assert.equal(safeStreamText(raw, ["execution-secret"], true), "报告：结果文件/report.md完成");
   assert.equal(safeStreamText("正常 ends with out", [], true), "正常 ends with out");
+});
+
+test("实时输出保留 Markdown 图片和下载链接路径", () => {
+  const path = "/workspace/outputs/network/execution-secret/pagefault.png";
+  const text = `[下载 PNG](${path})\n![流程图](${path})\n保存于 ${path}`;
+  assert.equal(
+    safeStreamText(text, ["execution-secret"], true),
+    `[下载 PNG](${path})\n![流程图](${path})\n保存于 结果文件/pagefault.png`,
+  );
+});
+
+test("实时 Markdown 链接目标在括号闭合前不会被部分脱敏", () => {
+  const text = "[下载 PNG](/workspace/outputs/network/execution-secret/pagefault.png)";
+  for (let end = 1; end < text.length; end += 1) {
+    assert.doesNotMatch(safeStreamText(text.slice(0, end), ["execution-secret"], false), /outputs\//);
+  }
+  assert.equal(safeStreamText(text, ["execution-secret"], false), text);
 });
 
 test("SSE解析支持UTF8及CRLF分块、忽略心跳与坏JSON、退出时取消上游", async () => {

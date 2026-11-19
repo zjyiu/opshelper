@@ -720,6 +720,9 @@
 .opshelper-markdown ul, .opshelper-markdown ol { margin: 10px 0; padding-left: 24px; }
 .opshelper-markdown li { margin: 6px 0; }
 .opshelper-markdown a { color: var(--g-accent-dark); }
+.opshelper-markdown .opshelper-workspace-file-path {
+  margin-left: 0.45em; color: var(--g-muted); font: 0.9em var(--g-mono); overflow-wrap: anywhere;
+}
 .opshelper-markdown strong { font-weight: 600; color: #1f2933; }
 .opshelper-code-block {
   margin: 12px 0; overflow: hidden; border: 1px solid #d7d9de;

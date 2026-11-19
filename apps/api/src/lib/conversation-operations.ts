@@ -58,7 +58,7 @@ function targetFor(kind: string, part: Row) {
   const display = row(row(state.metadata).display);
   if (kind === "read" || kind === "change") {
     const path = firstText(display, ["path"]) ?? firstText(input, ["filePath", "filepath", "path", "filename", "destination"]);
-    return path?.replace(/^\/workspace\/outputs\/[^/]+/, "结果文件") ?? null;
+    return path?.replace(/^\/workspace\/outputs\/[^/]+(?:\/[^/]+)?/, "结果文件") ?? null;
   }
   if (kind === "search") {
     return firstText(input, ["pattern", "query", "search", "text"]);

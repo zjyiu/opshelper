@@ -87,6 +87,10 @@ test("装配只包含获配智能体，同一内容复用代次，重建保留�
       withBuiltinInstructions("所有交付文件必须保存在 /workspace。\n", BUILTIN_INSTRUCTIONS),
     );
     assert.match(await readFile(path.join(release, "config", "opencode", "AGENTS.md"), "utf8"), /pele-render/);
+    const instructions = await readFile(path.join(release, "config", "opencode", "AGENTS.md"), "utf8");
+    assert.match(instructions, /可用 Mermaid 表达的插图都必须通过 pele 渲染/);
+    assert.match(instructions, /不要手写 SVG\/HTML\/CSS 来代替 pele/);
+    assert.match(instructions, /不要静默切换生成方法/);
     assert.match(
       await readFile(path.join(release, "config", "opencode", "AGENTS.md"), "utf8"),
       /默认将 `\/workspace` 作为文件操作范围/,

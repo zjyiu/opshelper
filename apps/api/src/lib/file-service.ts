@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   open,
+  type FileHandle,
   readdir,
   readFile,
   realpath,
@@ -557,13 +558,22 @@ export async function saveUploadedFile(
   const dirResolved = await resolveUserPathSafe(userId, targetDir || "");
   await mkdir(dirResolved, { recursive: true });
 
-  const dest = path.join(dirResolved, safe);
   const root = getUserDataRoot(userId);
-  if (!dest.startsWith(root + "/")) {
-    throw new PathTraversalError();
+  const extension = path.extname(safe);
+  const stem = extension ? safe.slice(0, -extension.length) : safe;
+  let dest: string;
+  let handle: FileHandle;
+  for (let suffix = 0; ; suffix += 1) {
+    const candidate = suffix === 0 ? safe : `${stem} (${suffix})${extension}`;
+    dest = path.join(dirResolved, candidate);
+    if (!dest.startsWith(root + "/")) throw new PathTraversalError();
+    try {
+      handle = await open(dest, "wx");
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
   }
-
-  const handle = await open(dest, "wx");
   try {
     if (Buffer.isBuffer(data)) {
       await handle.writeFile(data);

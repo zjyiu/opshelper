@@ -77,9 +77,23 @@ test("工作区图片改写为内联下载地址，且拒绝路径穿越", () =>
 test("工作区文件链接改写为下载地址，且拒绝路径穿越", () => {
   const ok = renderAssistantMarkdown("[下载报告](/workspace/outputs/report.docx)");
   assert.match(ok, /href="\/v1\/users\/me\/files\/download\?path=%2Fworkspace%2Foutputs%2Freport\.docx"/);
+  assert.match(ok, /<\/a><span class="opshelper-workspace-file-path">路径：\/outputs\/report\.docx<\/span>/);
+  assert.doesNotMatch(ok, /opshelper-workspace-file-path">路径：\/workspace/);
 
   const bad = renderAssistantMarkdown("[下载文件](/workspace/../etc/passwd)");
   assert.doesNotMatch(bad, /files\/download/);
+  assert.doesNotMatch(bad, /opshelper-workspace-file-path/);
+});
+
+test("执行结果文件链接和图片都改写为工作区下载地址并显示路径", () => {
+  const path = "/workspace/outputs/network/execution-123/pagefault.png";
+  const rendered = renderAssistantMarkdown(`[下载 PNG](${path})\n\n![流程图](${path})`);
+  const encoded = encodeURIComponent(path);
+
+  assert.ok(rendered.includes(`href="/v1/users/me/files/download?path=${encoded}"`));
+  assert.ok(rendered.includes(`src="/v1/users/me/files/download?path=${encoded}&amp;inline=1"`));
+  assert.match(rendered, /路径：\/outputs\/network\/execution-123\/pagefault\.png/);
+  assert.match(rendered, /class="opshelper-workspace-image"/);
 });
 
 test("外链图片也可通过键盘打开预览", () => {

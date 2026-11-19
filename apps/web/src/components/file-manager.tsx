@@ -29,7 +29,9 @@ import {
 import { toast } from "@/lib/toast";
 import { uploadStore } from "@/lib/upload-store";
 import { usePageRefresh } from "./navigation-refresh";
+import { useWorkspace } from "./workspace-shell";
 import {
+  categorizeUploadPath,
   collectDroppedFiles,
   copyText,
   expandedPathsStorageKey,
@@ -52,7 +54,7 @@ import {
 type FileView = "all" | "uploads" | "outputs";
 type FileClipboard = { mode: "copy" | "cut"; items: FileInfo[] };
 
-// chat-uploads 是对话与手动上传的落点，outputs 存放智能体生成的内容。
+// chat-uploads 与 outputs 下均按智能体 key 建子目录，执行产物再按执行 ID 隔离。
 const scopedViewRoots: Partial<Record<FileView, { path: string; label: string }>> = {
   uploads: { path: `${rootPath}/chat-uploads`, label: "对话上传文件" },
   outputs: { path: `${rootPath}/outputs`, label: "生成文件" },
@@ -86,6 +88,7 @@ export function FileManager({
   compact?: boolean;
   initialPath?: string;
 }) {
+  const { activeAgent } = useWorkspace();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
@@ -688,7 +691,11 @@ export function FileManager({
     doneText: string,
     refreshPath = currentPath,
   ) {
-    const items = files.map((item, index) => ({
+    const categorizedFiles = files.map((item) => ({
+      ...item,
+      targetPath: categorizeUploadPath(item.targetPath, activeAgent?.key ?? "unassigned"),
+    }));
+    const items = categorizedFiles.map((item, index) => ({
       id: `${Date.now()}-${index}-${item.filename}`,
       name: item.filename,
       progress: 0,
@@ -698,19 +705,23 @@ export function FileManager({
 
     let failedCount = 0;
     let cursor = 0;
-    const concurrency = Math.min(4, files.length);
+    const concurrency = Math.min(4, categorizedFiles.length);
 
     async function worker() {
       while (true) {
         const index = cursor++;
-        if (index >= files.length) return;
-        const item = files[index];
+        if (index >= categorizedFiles.length) return;
+        const item = categorizedFiles[index];
         const id = items[index].id;
         try {
-          await uploadFile(item.targetPath, item.file, item.filename, (progress) => {
+          const result = await uploadFile(item.targetPath, item.file, item.filename, (progress) => {
             uploadStore.update(id, { progress });
           });
-          uploadStore.update(id, { progress: 100, status: "done" });
+          uploadStore.update(id, {
+            name: result.path.slice(result.path.lastIndexOf("/") + 1),
+            progress: 100,
+            status: "done",
+          });
         } catch (error) {
           failedCount += 1;
           uploadStore.update(id, {
@@ -728,7 +739,7 @@ export function FileManager({
     } else {
       toast.success(doneText);
     }
-    const uploadDirs = Array.from(new Set(files.map((f) => f.targetPath)));
+    const uploadDirs = Array.from(new Set(categorizedFiles.map((f) => f.targetPath)));
     await refreshTree(refreshPath, ...uploadDirs);
   }
 
@@ -1168,7 +1179,7 @@ export function FileManager({
                     <div className="file-head-bulk">
                       <strong>已选 {selectedFiles.length} 项</strong>
                       <button type="button" disabled={isPending} onClick={() => copyOrCutItems(selectedFiles, "copy")}>复制</button>
-                      <button type="button" disabled={isPending} onClick={() => copyOrCutItems(selectedFiles, "cut")}><IconScissors />剪切</button>
+                      <button type="button" disabled={isPending} onClick={() => copyOrCutItems(selectedFiles, "cut")}>剪切</button>
                       <button type="button" disabled={isPending} onClick={() => setMoveItems(selectedFiles)}>移动</button>
                       <button type="button" disabled={isPending} onClick={() => downloadItems(selectedFiles)}>下载</button>
                       <button type="button" className="is-danger" disabled={isPending} onClick={() => void confirmBulkDelete(selectedFiles)}>删除</button>

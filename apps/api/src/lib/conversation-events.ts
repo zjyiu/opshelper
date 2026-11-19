@@ -43,22 +43,61 @@ export async function* readRuntimeEvents(body: ReadableStream<Uint8Array>) {
 
 /** Hold a possible internal identifier until enough text arrives to redact it. */
 export function safeStreamText(text: string, executionIds: string[], complete: boolean) {
-  const paths = executionIds.flatMap((id) => [`/workspace/outputs/${id}`, `outputs/${id}`]);
-  let result = text.replace(/\n?\n?<!-- opshelper-execution:[A-Za-z0-9-]+ -->/g, "");
-  for (const path of paths) result = result.replaceAll(path, "结果文件");
+  const linkStart = text.lastIndexOf("](");
+  const incompleteLinkStart = !complete && linkStart > text.lastIndexOf(")") ? linkStart : -1;
+  const safeText = incompleteLinkStart >= 0 ? text.slice(0, incompleteLinkStart) : text;
+  const preservedLinks: string[] = [];
+  const withPreservedLinks = safeText.replace(/(!?\[[^\]]*\]\()([^)]+)(\))/g, (match, _open, target: string) => {
+    if (!/(?:\/workspace\/)?outputs\//.test(target)) return match;
+    const placeholder = `OPSHELPER_OUTPUT_LINK_${preservedLinks.length}_END`;
+    preservedLinks.push(match);
+    return placeholder;
+  });
+  const paths = ["/workspace/outputs/", "outputs/", ...executionIds.flatMap((id) => [
+    `/workspace/outputs/${id}`,
+    `outputs/${id}`,
+  ])];
+  let result = withPreservedLinks.replace(/\n?\n?<!-- opshelper-execution:[A-Za-z0-9-]+ -->/g, "");
+  for (const id of executionIds) {
+    const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    result = result.replace(
+      new RegExp(`(?:/workspace/)?outputs/(?:[^/\\s]+/)?${escapedId}(?=/|[\\s)"'\`]|$)`, "g"),
+      "结果文件",
+    );
+  }
+  result = result.replace(/(?:\/workspace\/)?outputs\/[^/\s]+\/[^/\s]+(?=\/|[\s)"'`]|$)/g, "结果文件");
   const markerPrefix = "<!-- opshelper-execution:";
   const markerStart = result.lastIndexOf(markerPrefix);
   if (markerStart >= 0 && !result.slice(markerStart).includes("-->")) {
     result = result.slice(0, markerStart);
   }
-  if (complete) return result.trimEnd();
+  if (complete) {
+    preservedLinks.forEach((link, index) => {
+      result = result.replace(`OPSHELPER_OUTPUT_LINK_${index}_END`, link);
+    });
+    return result.trimEnd();
+  }
   let held = 0;
   for (const prefix of [...paths, markerPrefix]) {
     for (let length = 1; length < prefix.length && length <= result.length; length++) {
       if (result.endsWith(prefix.slice(0, length))) held = Math.max(held, length);
     }
   }
-  return held ? result.slice(0, -held) : result;
+  const outputStart = Math.max(
+    result.lastIndexOf("/workspace/outputs/"),
+    result.lastIndexOf("outputs/"),
+  );
+  if (outputStart >= 0) {
+    const possiblePath = result.slice(outputStart);
+    if (/^(?:\/workspace\/)?outputs\/[^/\s]*(?:\/[^/\s]*)?$/.test(possiblePath)) {
+      held = Math.max(held, possiblePath.length);
+    }
+  }
+  result = held ? result.slice(0, -held) : result;
+  preservedLinks.forEach((link, index) => {
+    result = result.replace(`OPSHELPER_OUTPUT_LINK_${index}_END`, link);
+  });
+  return result;
 }
 
 interface TextPart {

@@ -132,20 +132,40 @@ test("listDirectory and copyItem do not expose symlink targets", async () => {
   await assert.rejects(copyItem("user-4", "secret-link", ""), PathTraversalError);
 });
 
-test("uploads never overwrite an existing file", async () => {
+test("uploads add a suffix instead of overwriting an existing file", async () => {
   const { getUserDataRoot, saveUploadedFile } = await loadFileService();
   assert.equal(
     await saveUploadedFile("user-5", "uploads", "report.txt", Buffer.from("first")),
     "/workspace/uploads/report.txt",
   );
-  await assert.rejects(
-    saveUploadedFile("user-5", "uploads", "report.txt", Buffer.from("second")),
-    (error: NodeJS.ErrnoException) => error.code === "EEXIST",
+  assert.equal(
+    await saveUploadedFile("user-5", "uploads", "report.txt", Buffer.from("second")),
+    "/workspace/uploads/report (1).txt",
+  );
+  assert.equal(
+    await saveUploadedFile("user-5", "uploads", "report.txt", Buffer.from("third")),
+    "/workspace/uploads/report (2).txt",
   );
   assert.equal(
     await readFile(path.join(getUserDataRoot("user-5"), "uploads", "report.txt"), "utf8"),
     "first",
   );
+  assert.equal(
+    await readFile(path.join(getUserDataRoot("user-5"), "uploads", "report (1).txt"), "utf8"),
+    "second",
+  );
+  assert.equal(
+    await readFile(path.join(getUserDataRoot("user-5"), "uploads", "report (2).txt"), "utf8"),
+    "third",
+  );
+  const simultaneous = await Promise.all([
+    saveUploadedFile("user-5", "uploads", "parallel.txt", Buffer.from("one")),
+    saveUploadedFile("user-5", "uploads", "parallel.txt", Buffer.from("two")),
+  ]);
+  assert.deepEqual(simultaneous.sort(), [
+    "/workspace/uploads/parallel (1).txt",
+    "/workspace/uploads/parallel.txt",
+  ]);
   assert.equal(
     await saveUploadedFile(
       "user-5",
