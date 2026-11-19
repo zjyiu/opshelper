@@ -663,6 +663,8 @@ function conversationSummary(
     scheduleName: latest && latest.source !== "CHAT"
       ? conversation.title.replace(/^(定时任务|立即执行)\s*·\s*/, "")
       : null,
+    pinnedAt: conversation.pinnedAt?.toISOString() ?? null,
+    archivedAt: conversation.archivedAt?.toISOString() ?? null,
     createdAt: conversation.createdAt.toISOString(),
     updatedAt: conversation.updatedAt.toISOString(),
   };
@@ -710,6 +712,15 @@ export async function listConversationHome(userId: string): Promise<Conversation
       ? container.executionRecoveryReason ?? "运行环境需要人工恢复"
       : null,
   };
+}
+
+export async function listArchivedConversations(userId: string): Promise<ConversationSummary[]> {
+  const conversations = await prisma.conversation.findMany({
+    where: { ...conversationHomeWhere(userId), archivedAt: { not: null } },
+    include: { executions: { orderBy: { createdAt: "desc" }, take: 1 } },
+    orderBy: { archivedAt: "desc" },
+  });
+  return conversations.map((conversation) => conversationSummary(conversation, new Map()));
 }
 
 type SearchExecution = Pick<Execution, "id" | "inputText" | "resultSummary" | "promptMarker">;
@@ -1079,7 +1090,14 @@ export async function enqueueExecution(input: {
   }
   let execution: Execution;
   try {
-    execution = await prisma.$transaction(async (tx) => {
+    execution = await withUserConfigLock(input.userId, async (tx) => {
+      const currentConversation = await tx.conversation.findFirst({
+        where: ownedConversationWhere(input.userId, input.conversationId),
+      });
+      if (!currentConversation) throw new ConversationServiceError("对话不存在", 404);
+      if (currentConversation.recoveryRequired) {
+        throw new ConversationServiceError(currentConversation.recoveryReason ?? "该对话需要先完成恢复", 409);
+      }
       const created = await tx.execution.create({
         data: {
           userId: input.userId,
@@ -1102,9 +1120,9 @@ export async function enqueueExecution(input: {
           lastConfigGeneration: container.appliedGeneration,
           // 在归档的对话里继续发言就当作用户重新使用它：回到会话列表，而不是留在隐形状态。
           archivedAt: null,
-          title: conversation.title === "新的对话" && input.text.trim()
+          title: currentConversation.title === "新的对话" && input.text.trim()
             ? fallbackConversationTitle(input.text)
-            : conversation.title,
+            : currentConversation.title,
         },
       });
       return created;
@@ -2323,14 +2341,83 @@ export async function renameConversation(userId: string, conversationId: string,
 }
 
 export async function archiveConversation(userId: string, conversationId: string) {
-  await requireOwnedConversation(userId, conversationId);
-  const active = await prisma.execution.findFirst({
-    where: { conversationId, status: { in: activeStatuses } },
+  return withUserConfigLock(userId, async (tx) => {
+    const conversation = await tx.conversation.findFirst({
+      where: { ...conversationHomeWhere(userId), id: conversationId },
+    });
+    if (!conversation) throw new ConversationServiceError("对话不存在或已归档", 404);
+    const active = await tx.execution.findFirst({
+      where: { userId, conversationId, status: { in: [ExecutionStatus.QUEUED, ...activeStatuses] } },
+    });
+    if (active) throw new ConversationServiceError("当前对话仍有排队或执行中的任务，结束后才能归档", 409);
+    return tx.conversation.update({
+      where: { id: conversationId },
+      data: { archivedAt: new Date() },
+    });
   });
-  if (active) throw new ConversationServiceError("当前对话仍有执行，结束后才能归档", 409);
-  return prisma.conversation.update({
-    where: { id: conversationId },
-    data: { archivedAt: new Date() },
+}
+
+export async function setConversationPinned(userId: string, conversationId: string, pinned: boolean) {
+  const updated = await prisma.$executeRaw`
+    UPDATE "Conversation" AS c SET "pinnedAt" = ${pinned ? new Date() : null}
+    WHERE c."id" = ${conversationId} AND c."userId" = ${userId} AND c."archivedAt" IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM "Execution" e WHERE e."conversationId" = c."id"
+        AND e."source" IN ('SCHEDULED', 'SCHEDULE_MANUAL')
+      )
+  `;
+  if (!updated) throw new ConversationServiceError("对话不存在或已归档", 404);
+}
+
+export async function restoreConversation(userId: string, conversationId: string) {
+  const result = await prisma.conversation.updateMany({
+    where: { ...conversationHomeWhere(userId), id: conversationId, archivedAt: { not: null } },
+    data: { archivedAt: null },
+  });
+  if (!result.count) throw new ConversationServiceError("归档对话不存在", 404);
+}
+
+export async function deleteConversation(userId: string, conversationId: string) {
+  const owned = await prisma.conversation.findFirst({
+    where: { ...conversationHomeWhere(userId), id: conversationId, archivedAt: undefined },
+  });
+  if (!owned) throw new ConversationServiceError("对话不存在", 404);
+  const connection = owned.nativeSessionId ? await connectRuntimeForRead(userId) : null;
+  await withUserConfigLock(userId, async (tx) => {
+    const conversation = await tx.conversation.findFirst({
+      where: { ...conversationHomeWhere(userId), id: conversationId, archivedAt: undefined },
+    });
+    if (!conversation) throw new ConversationServiceError("对话不存在", 404);
+    if (conversation.recoveryRequired || conversation.sessionCreateAttemptId) {
+      throw new ConversationServiceError("该对话状态尚未确认，请先恢复后再删除", 409);
+    }
+    const active = await tx.execution.findFirst({
+      where: { userId, conversationId, status: { in: [ExecutionStatus.QUEUED, ...activeStatuses] } },
+    });
+    if (active) throw new ConversationServiceError("当前对话仍有排队或执行中的任务，结束后才能删除", 409);
+    if (conversation.nativeSessionId) {
+      if (!connection || conversation.nativeSessionId !== owned.nativeSessionId) {
+        throw new ConversationServiceError("对话状态已变化，请刷新后重试", 409);
+      }
+      const sessions = await runtimeRequest<RuntimeSession[]>(connection, "GET", "/api/session");
+      const descendants = selectRuntimeDescendants(sessions, conversation.nativeSessionId, [], Number.MAX_SAFE_INTEGER);
+      const ids = [conversation.nativeSessionId, ...descendants.map((session) => session.id)];
+      const other = await tx.conversation.findFirst({
+        where: { userId, id: { not: conversationId }, nativeSessionId: { in: ids } },
+      });
+      if (other) throw new ConversationServiceError("该对话包含其他对话关联的会话，暂不能安全删除", 409);
+      const statuses = await runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/api/session/active");
+      if (ids.some((id) => statuses[id] && statuses[id].type !== "idle")) {
+        throw new ConversationServiceError("当前对话的智能体仍在执行，结束后才能删除", 409);
+      }
+      try {
+        // V2 deletes the entire child-session tree with its root.
+        await runtimeRequest(connection, "DELETE", `/api/session/${encodeURIComponent(conversation.nativeSessionId)}`);
+      } catch (error) {
+        if (!(error instanceof RuntimeRequestError) || error.statusCode !== 404) throw error;
+      }
+    }
+    await tx.conversation.delete({ where: { id: conversationId } });
   });
 }
 

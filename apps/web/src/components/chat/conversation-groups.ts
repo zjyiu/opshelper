@@ -42,9 +42,13 @@ export function groupConversationsByAgent(
   return [...groups.values()]
     .map((group) => ({
       ...group,
-      conversations: term
+      conversations: (term
         ? group.conversations.filter((conversation) => conversation.title.toLowerCase().includes(term))
-        : group.conversations,
+        : group.conversations).sort((left, right) => {
+          if (Boolean(left.pinnedAt) !== Boolean(right.pinnedAt)) return left.pinnedAt ? -1 : 1;
+          if (left.pinnedAt && right.pinnedAt) return Date.parse(right.pinnedAt) - Date.parse(left.pinnedAt);
+          return updatedAtTime(right) - updatedAtTime(left);
+        }),
     }))
     .filter((group) => group.conversations.length > 0);
 }

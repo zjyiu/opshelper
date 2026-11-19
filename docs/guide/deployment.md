@@ -72,6 +72,8 @@ deployment/
 
 已有 OpenCode 1 开发实例必须先按 [OpenCode 2 切换说明](opencode-2-migration.md)处理旧会话关联；不能只更新镜像标签后直接启动。V2 状态保存在每用户 `state/v2/`，与旧状态分离。后续并发修复包含 `20261013000100_schedule_manual_concurrency` 索引迁移；个人智能体功能包含 `20261014000100_personal_agent_ownership` 所有者迁移。升级由 `up` 应用，不运行 seed；迁移前先停写备份并保留原镜像。
 
+对话置顶需要应用 `20261118000100_conversation_pin` 数据库迁移，并同步更新 API 和 Web；旧备份恢复后需重新应用迁移。永久删除不会清除已有备份。
+
 本版本只支持新 schema 的部署，不接管旧系统数据库或 volume。升级前使用[备份恢复](backup-restore.md)停写备份，保留完整旧镜像和发布目录；完成后重新 `up`。不要将当前迁移直接用于改造前数据库，也不要使用 `prisma db push` 作为部署升级命令。
 
 Compose 服务使用 `restart: unless-stopped`。手动停止的容器不会因为 Docker 重启自行恢复。动态用户容器由 API 按需唤醒，个人计划由 worker 独立登记。整台宿主机开机恢复还依赖 Docker 自启动、磁盘挂载和网络。

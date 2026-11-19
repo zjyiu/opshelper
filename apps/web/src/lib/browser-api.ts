@@ -16,6 +16,7 @@ import type {
   ConversationsResponse,
   ConversationSearchResult,
   ConversationSnapshot,
+  ConversationSummary,
   CreateConversationRequest,
   ForkConversationResponse,
   CreateExecutionRequest,
@@ -334,6 +335,26 @@ export async function changePassword(currentPassword: string, newPassword: strin
 
 export async function listConversations() {
   return fetchJson<ConversationsResponse>("/v1/conversations", { cache: "no-store" });
+}
+
+export async function listArchivedConversations() {
+  return fetchJson<ConversationSummary[]>("/v1/conversations/archived", { cache: "no-store" });
+}
+
+export async function setConversationPinned(conversationId: string, pinned: boolean) {
+  return fetchJson<void>(`/v1/conversations/${encodeURIComponent(conversationId)}/pin`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pinned }),
+  });
+}
+
+export async function restoreConversation(conversationId: string) {
+  return fetchJson<void>(`/v1/conversations/${encodeURIComponent(conversationId)}/restore`, { method: "POST" });
+}
+
+export async function deleteConversation(conversationId: string) {
+  return fetchJson<void>(`/v1/conversations/${encodeURIComponent(conversationId)}/permanent-delete`, { method: "POST" });
 }
 
 export async function searchConversations(query: string, agentKeys: readonly string[]) {

@@ -25,6 +25,8 @@ import type {
 import agentDirectoryIcon from "../../public/brand/agent-directory.png";
 import {
   archiveConversation,
+  deleteConversation,
+  setConversationPinned,
   renameConversation,
   getConversation,
   listConversations,
@@ -32,6 +34,7 @@ import {
 } from "@/lib/browser-api";
 import { AgentMark } from "./chat/assistant";
 import { groupConversationsByAgent } from "./chat/conversation-groups";
+import { runConversationBatch, toggleConversationSelection } from "./chat/conversation-batch";
 import { cleanTitle, formatConversationTime, formatConversationTimestamp, fullConversationTitle } from "./chat/format";
 import type { NewConversationRequest } from "./chat/new-conversation-request";
 import {
@@ -39,18 +42,21 @@ import {
   IconClock,
   IconClose,
   IconCompose,
-  IconEdit,
   IconFolder,
   IconMenu,
   IconPlus,
+  IconArchive,
+  IconPin,
   IconSidePanel,
   IconSearch,
+  IconTrash,
 } from "./chat/icons";
-import { ConversationArchiveAction } from "./chat/conversation-archive-action";
+import { ConversationActions } from "./chat/conversation-actions";
 import { ConversationDraftProvider, useConversationDraftStore } from "./chat/conversation-draft-provider";
 import { conversationDraftKey, hasDraft } from "./chat/conversation-drafts";
 import { UserProfileMenu } from "./user-profile-menu";
 import { refreshCurrentPage, useRouteRefresh } from "./navigation-refresh";
+import { confirm as confirmDialog } from "./ui/dialog-host";
 
 const CHAT_CONTEXT_KEY = "opshelper:conversation";
 const CHAT_AGENT_KEY = "opshelper:agent";
@@ -78,6 +84,8 @@ interface WorkspaceContextValue {
   selectAgent: (agentKey: string) => void;
   startNewConversation: (prefill?: string, agentKey?: string) => void;
   removeConversation: (conversationId: string) => Promise<void>;
+  deleteConversationPermanently: (conversationId: string) => Promise<void>;
+  pinConversation: (conversationId: string, pinned: boolean) => Promise<void>;
   setShowSidebar: (value: boolean) => void;
 }
 
@@ -338,6 +346,28 @@ export function WorkspaceShell({
     void refreshHome(undefined, { activate: false }).catch(() => undefined);
   }, [clearActiveConversation, refreshHome, router]);
 
+  const deleteConversationPermanently = useCallback(async (conversationId: string) => {
+    await deleteConversation(conversationId);
+    setConversations((current) => current.filter((item) => item.id !== conversationId));
+    if (activeConversationRef.current === conversationId) {
+      clearActiveConversation();
+      const route = currentRouteRef.current;
+      if (route.pathname.endsWith("/chat") && route.conversationId === conversationId) {
+        router.replace(`/chat?new=${Date.now()}`);
+      }
+    }
+    void refreshHome(undefined, { activate: false })
+      .catch((error) => toast.error(error instanceof Error ? error.message : "刷新对话列表失败"));
+  }, [clearActiveConversation, refreshHome, router]);
+
+  const pinConversation = useCallback(async (conversationId: string, pinned: boolean) => {
+    await setConversationPinned(conversationId, pinned);
+    setConversations((current) => current.map((item) =>
+      item.id === conversationId ? { ...item, pinnedAt: pinned ? new Date().toISOString() : null } : item));
+    void refreshHome(undefined, { activate: false })
+      .catch((error) => toast.error(error instanceof Error ? error.message : "刷新对话列表失败"));
+  }, [refreshHome]);
+
   const updateConversation = useCallback((conversation: ConversationSummary) => {
     setConversations((current) => current.map((item) =>
       item.id === conversation.id ? conversation : item));
@@ -359,6 +389,8 @@ export function WorkspaceShell({
     selectAgent,
     startNewConversation,
     removeConversation,
+    deleteConversationPermanently,
+    pinConversation,
     renameConversationTitle,
     setShowSidebar,
   }), [
@@ -373,6 +405,8 @@ export function WorkspaceShell({
     newConversationRequest,
     refreshHome,
     removeConversation,
+    deleteConversationPermanently,
+    pinConversation,
     renameConversationTitle,
     selectAgent,
     showSidebar,
@@ -496,6 +530,18 @@ function ColumnResizer({
   );
 }
 
+function SelectionCheckbox({ label, checked, partial = false, disabled, onChange }: {
+  label: string;
+  checked: boolean;
+  partial?: boolean;
+  disabled?: boolean;
+  onChange: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (ref.current) ref.current.indeterminate = partial; }, [partial]);
+  return <input ref={ref} type="checkbox" aria-label={label} checked={checked} disabled={disabled} onChange={onChange} />;
+}
+
 export function WorkspaceMenuButton() {
   const { showSidebar, setShowSidebar } = useWorkspace();
   return (
@@ -524,6 +570,8 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
     executionBlockedReason,
     startNewConversation,
     removeConversation,
+    deleteConversationPermanently,
+    pinConversation,
     renameConversationTitle,
     refreshHome,
     showSidebar,
@@ -541,8 +589,12 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   const [searchError, setSearchError] = useState<string | null>(null);
   const [newConversationMenuOpen, setNewConversationMenuOpen] = useState(false);
   const [expandedAgentKey, setExpandedAgentKey] = useState<string | null>(null);
-  const [archiveConversationId, setArchiveConversationId] = useState<string | null>(null);
-  const closeArchive = useCallback(() => setArchiveConversationId(null), []);
+  const [menuConversationId, setMenuConversationId] = useState<string | null>(null);
+  const closeConversationMenu = useCallback(() => setMenuConversationId(null), []);
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const batchBusyRef = useRef(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameBusyRef = useRef(false);
@@ -562,8 +614,8 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   };
 
   useEffect(() => {
-    closeArchive();
-  }, [activeAgent?.key, activeConversationId, pathname, search, showSidebar, closeArchive]);
+    closeConversationMenu();
+  }, [activeAgent?.key, activeConversationId, pathname, search, showSidebar, closeConversationMenu]);
   const conversationListId = useId();
   const newConversationMenuId = useId();
   const newConversationButtonRef = useRef<HTMLButtonElement>(null);
@@ -676,6 +728,38 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
     () => groupConversationsByAgent(conversations, agents),
     [agents, conversations],
   );
+  const selectedConversations = conversations.filter((item) => selectedIds.has(item.id));
+  const toggleSelection = (ids: string[]) => {
+    setSelectedIds((current) => toggleConversationSelection(current, ids));
+  };
+  const performConversationAction = async (action: "archive" | "delete", items: ConversationSummary[]) => {
+    if (!items.length || batchBusyRef.current) return;
+    const confirmed = await confirmDialog({
+      title: action === "delete" ? "永久删除对话？" : "归档对话？",
+      description: action === "delete"
+        ? `将永久删除 ${items.length} 个对话及其聊天记录，无法恢复。工作区文件不会删除；排队或执行中的对话会跳过。`
+        : `将归档 ${items.length} 个对话，可在“已归档的对话”中恢复；排队或执行中的对话会跳过。`,
+      confirmLabel: action === "delete" ? "永久删除" : "归档",
+      variant: action === "delete" ? "danger" : "default",
+    });
+    if (!confirmed || batchBusyRef.current) return;
+    batchBusyRef.current = true;
+    setBatchBusy(true);
+    try {
+      const failures = await runConversationBatch(items, action === "delete" ? deleteConversationPermanently : removeConversation);
+      setSelectedIds(new Set(failures.map((item) => item.id)));
+      const succeeded = items.length - failures.length;
+      if (succeeded) toast.success(`已${action === "delete" ? "删除" : "归档"} ${succeeded} 个对话`);
+      if (failures.length) {
+        toast.error(`${failures.length} 个对话未处理：${failures.map((item) => `${cleanTitle(item.title)}（${item.message}）`).join("；")}`);
+      } else {
+        setBatchMode(false);
+      }
+    } finally {
+      batchBusyRef.current = false;
+      setBatchBusy(false);
+    }
+  };
   const currentAgentGroupKey = conversationGroups.find((group) =>
     group.conversations.some((item) => item.id === activeConversationId))?.agentKey
     ?? conversationGroups.find((group) => group.agentKey === activeAgent?.key)?.agentKey
@@ -862,19 +946,29 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
             <div className="opshelper-conv-empty">暂无对话</div>
           ) : null}
           {conversationGroups.map((group, index) => {
-            const expanded = expandedAgentKey === null
+            const expanded = batchMode || (expandedAgentKey === null
               ? group.agentKey === currentAgentGroupKey
-              : expandedAgentKey === group.agentKey;
+              : expandedAgentKey === group.agentKey);
             const groupId = `${conversationListId}-${index}`;
+            const groupIds = group.conversations.map((item) => item.id);
+            const groupSelected = groupIds.filter((id) => selectedIds.has(id)).length;
             return (
               <section className="opshelper-conversation-group" key={group.agentKey}>
                 <div className="opshelper-conversation-agent-row">
+                  {batchMode ? <SelectionCheckbox
+                    label={`选择${group.agentName}的所有对话`}
+                    checked={groupSelected === groupIds.length}
+                    partial={groupSelected > 0 && groupSelected < groupIds.length}
+                    disabled={batchBusy}
+                    onChange={() => toggleSelection(groupIds)}
+                  /> : null}
                   <button
                     className="opshelper-conversation-agent"
                     type="button"
-                    aria-expanded={expanded}
-                    aria-controls={expanded ? groupId : undefined}
-                    onClick={() => toggleConversationGroup(group.agentKey)}
+                    aria-expanded={batchMode ? undefined : expanded}
+                    aria-controls={!batchMode && expanded ? groupId : undefined}
+                    disabled={batchBusy}
+                    onClick={() => batchMode ? toggleSelection(groupIds) : toggleConversationGroup(group.agentKey)}
                   >
                     <AgentMark
                       id={group.agentKey}
@@ -883,7 +977,7 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                     />
                     <span className="opshelper-conversation-agent-name">{group.agentName}</span>
                   </button>
-                  <button
+                  {!batchMode ? <button
                     className="opshelper-conversation-agent-add"
                     type="button"
                     aria-label={`为${group.agentName}新建对话`}
@@ -891,18 +985,28 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                     onClick={() => startNewConversation("", group.agentKey)}
                   >
                     <IconPlus />
-                  </button>
+                  </button> : null}
                 </div>
                 {expanded ? (
                   <div className="opshelper-conversation-group-list" id={groupId}>
                     {group.conversations.map((item) => (
                       <div
-                        className={`opshelper-conv${pathname.endsWith("/chat") && item.id === activeConversationId ? " active" : ""}`}
+                        className={`opshelper-conv${batchMode ? " batch" : ""}${pathname.endsWith("/chat") && item.id === activeConversationId ? " active" : ""}`}
                         key={item.id}
                       >
+                        {batchMode ? <SelectionCheckbox
+                          label={`选择对话 ${cleanTitle(item.title)}`}
+                          checked={selectedIds.has(item.id)}
+                          disabled={batchBusy}
+                          onChange={() => toggleSelection([item.id])}
+                        /> : null}
                         {/* 让最终生效的 URL 驱动会话切换。若先改 activeConversationId，快速跨页点击时
                             前一次路由可能在会话请求期间提交，聊天页便会遗留在加载态。 */}
-                        {renamingId === item.id ? (
+                        {batchMode ? (
+                          <button className="opshelper-conv-main" type="button" disabled={batchBusy} onClick={() => toggleSelection([item.id])}>
+                            <span className="opshelper-conv-label">{cleanTitle(item.title)}</span>
+                          </button>
+                        ) : renamingId === item.id ? (
                           <div className="opshelper-conv-main opshelper-conv-renaming">
                             <input
                               className="opshelper-conv-rename-input"
@@ -945,6 +1049,7 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                               <span className="opshelper-conv-label">
                                 {cleanTitle(item.title)}
                                 {item.source && item.source !== "chat" ? <small>定时</small> : null}
+                                {item.pinnedAt ? <span className="opshelper-conversation-pinned" title="已置顶"><IconPin /></span> : null}
                               </span>
                               {hasDraft(drafts[conversationDraftKey(item.id, item.leadAgentKey)]) ? <small className="opshelper-conv-draft">草稿</small> : null}
                               <span className="opshelper-conv-time" title={formatConversationTimestamp(item.updatedAt)}>
@@ -953,27 +1058,26 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                             </span>
                           </Link>
                         )}
-                        {renamingId === item.id ? null : (
-                          <button
-                            type="button"
-                            className="opshelper-conv-del opshelper-conv-edit"
-                            aria-label={`重命名对话 ${cleanTitle(item.title)}`}
-                            title="重命名"
-                            onClick={() => {
+                        {!batchMode && renamingId !== item.id ? (
+                          <ConversationActions
+                            title={item.title}
+                            pinned={Boolean(item.pinnedAt)}
+                            open={menuConversationId === item.id}
+                            onOpen={() => setMenuConversationId(item.id)}
+                            onClose={closeConversationMenu}
+                            onPin={() => {
+                              void pinConversation(item.id, !item.pinnedAt)
+                                .catch((error) => toast.error(error instanceof Error ? error.message : "置顶操作失败"));
+                            }}
+                            onRename={() => {
                               setRenameValue(cleanTitle(item.title));
                               setRenamingId(item.id);
                             }}
-                          >
-                            <IconEdit />
-                          </button>
-                        )}
-                        <ConversationArchiveAction
-                          title={item.title}
-                          open={archiveConversationId === item.id}
-                          onOpen={() => setArchiveConversationId(item.id)}
-                          onClose={closeArchive}
-                          onArchive={() => removeConversation(item.id)}
-                        />
+                            onBatch={() => { setSelectedIds(new Set([item.id])); setBatchMode(true); }}
+                            onArchive={() => void performConversationAction("archive", [item])}
+                            onDelete={() => void performConversationAction("delete", [item])}
+                          />
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -984,6 +1088,27 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
         </div>
 
         {executionBlockedReason ? <div className="opshelper-sidebar-notice">{executionBlockedReason}</div> : null}
+        {batchMode ? (
+          <div className="opshelper-batch-bar">
+            <div className="opshelper-batch-header">
+              <label>
+                <SelectionCheckbox
+                  label="选择所有对话"
+                  checked={conversations.length > 0 && selectedConversations.length === conversations.length}
+                  partial={selectedConversations.length > 0 && selectedConversations.length < conversations.length}
+                  disabled={batchBusy || conversations.length === 0}
+                  onChange={() => toggleSelection(conversations.map((item) => item.id))}
+                />
+                全选 ({selectedConversations.length})
+              </label>
+              <button type="button" aria-label="退出批量操作" disabled={batchBusy} onClick={() => { setBatchMode(false); setSelectedIds(new Set()); }}><IconClose /></button>
+            </div>
+            <div className="opshelper-batch-actions">
+              <button type="button" className="danger" disabled={batchBusy || !selectedConversations.length} onClick={() => void performConversationAction("delete", selectedConversations)}><IconTrash />删除</button>
+              <button type="button" disabled={batchBusy || !selectedConversations.length} onClick={() => void performConversationAction("archive", selectedConversations)}><IconArchive />归档</button>
+            </div>
+          </div>
+        ) : null}
       </nav>
 
       <div className="opshelper-userbar">

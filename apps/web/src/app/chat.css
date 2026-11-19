@@ -312,7 +312,7 @@
   transition: opacity 0.12s;
 }
 .opshelper-conv.active .opshelper-conv-time { color: var(--g-accent-dark); opacity: 0.8; }
-/* 归档按钮浮在时间列上方，不再在行内预留 44px，标题因此能多显示几个字。 */
+/* 操作按钮浮在时间列上方，避免占用标题宽度。 */
 .opshelper-conv-del {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
   width: 28px; height: 28px; display: grid; place-items: center;
@@ -321,8 +321,6 @@
   transition: opacity 0.12s, color 0.12s, background 0.12s;
 }
 .opshelper-conv-del .opshelper-icon { width: 16px; height: 16px; }
-.opshelper-conv-edit { right: 34px; }
-.opshelper-conv .opshelper-conv-edit:hover { color: var(--g-accent-dark); background: var(--g-accent-soft2); }
 .opshelper-conv-rename-input {
   flex: 1; min-width: 0; height: 28px; padding: 0 8px; font: inherit; font-size: 14px;
   color: var(--g-text); background: var(--g-bg); border: 1px solid var(--g-accent); border-radius: 6px; outline: none;
@@ -335,39 +333,79 @@
 .opshelper-conv:focus-within .opshelper-conv-time { opacity: 0; }
 .opshelper-conv-del:hover,
 .opshelper-conv-del[aria-expanded="true"] { color: var(--g-danger); background: var(--g-danger-soft); }
-
-/* Portaled into the shell: stays beside its row without list overflow clipping. */
-.opshelper-archive-confirm {
-  position: fixed; z-index: 400; width: min(280px, calc(100vw - 24px));
-  max-height: calc(100dvh - 24px); overflow: auto; padding: 14px;
+.opshelper-conv-more:hover,
+.opshelper-conv-more[aria-expanded="true"] { color: var(--g-text); background: var(--g-field); }
+.opshelper-conversation-pinned { display: inline-flex; vertical-align: middle; margin-left: 5px; }
+.opshelper-conversation-pinned .opshelper-icon { width: 13px; height: 13px; }
+.opshelper-conv.batch { display: flex; align-items: center; padding-left: 12px; }
+.opshelper-conv.batch .opshelper-conv-main { flex: 1; width: auto; padding-left: 12px; }
+.opshelper-conversation-agent-row > input,
+.opshelper-conv.batch > input,
+.opshelper-batch-header input { flex: none; accent-color: var(--g-accent-dark); }
+.opshelper-conversation-menu {
+  position: fixed; z-index: 110; min-width: 154px; padding: 6px;
   border: 1px solid var(--g-line-strong); border-radius: 12px;
-  background: var(--g-bg); color: var(--g-text);
-  box-shadow: 0 8px 28px rgba(17, 24, 39, 0.15);
-  font-size: 13px; line-height: 1.5;
+  background: var(--g-bg); box-shadow: var(--g-shadow); color: var(--g-text);
 }
-.opshelper-archive-confirm h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
-.opshelper-archive-confirm p { margin: 0 0 8px; color: var(--g-muted); overflow-wrap: anywhere; }
-.opshelper-archive-confirm .opshelper-archive-name {
-  color: var(--g-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.opshelper-conversation-menu button {
+  display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px;
+  border: 0; border-radius: 6px; background: transparent; color: inherit;
+  cursor: pointer; font: inherit; font-size: 13px; text-align: left;
 }
-.opshelper-archive-confirm .opshelper-archive-error { color: var(--g-danger); }
-.opshelper-archive-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-.opshelper-archive-actions button {
-  min-height: 36px; padding: 0 12px; border: 1px solid var(--g-line-strong); border-radius: 8px;
-  background: var(--g-bg); color: var(--g-text); font: inherit; cursor: pointer;
+.opshelper-conversation-menu button:hover, .opshelper-conversation-menu button:focus-visible { background: var(--g-field); }
+.opshelper-conversation-menu button.menu-section { margin-top: 5px; border-top: 1px solid var(--g-line); border-radius: 0; padding-top: 11px; }
+.opshelper-conversation-menu button.danger { color: var(--g-danger); }
+.opshelper-conversation-menu .opshelper-icon { width: 16px; height: 16px; }
+.opshelper-batch-bar { flex: none; padding: 10px; border-top: 1px solid var(--g-line); }
+.opshelper-batch-header, .opshelper-batch-header label, .opshelper-batch-actions { display: flex; align-items: center; gap: 8px; }
+.opshelper-batch-header { justify-content: space-between; font-size: 13px; color: var(--g-text); }
+.opshelper-batch-header button { border: 0; background: transparent; color: var(--g-muted); cursor: pointer; }
+.opshelper-batch-header .opshelper-icon, .opshelper-batch-actions .opshelper-icon { width: 16px; height: 16px; }
+.opshelper-batch-actions { margin-top: 8px; }
+.opshelper-batch-actions button {
+  display: flex; align-items: center; justify-content: center; gap: 5px; flex: 1;
+  padding: 7px; border: 1px solid var(--g-line-strong); border-radius: 8px;
+  background: var(--g-bg); color: var(--g-text); cursor: pointer; font: inherit; font-size: 13px;
 }
-.opshelper-archive-actions button:hover { background: var(--g-field); }
-.opshelper-archive-actions .opshelper-archive-submit {
-  border-color: transparent; background: var(--g-danger-soft); color: var(--g-danger); font-weight: 500;
+.opshelper-batch-actions button.danger { color: var(--g-danger); border-color: var(--g-danger); }
+.opshelper-batch-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.opshelper-archived-page { overflow: auto; padding: 24px; color: var(--g-text); }
+.opshelper-archived-filters {
+  display: flex; gap: 10px; max-width: 850px; margin: 0 auto 16px;
 }
-.opshelper-archive-actions .opshelper-archive-submit:hover { background: #fadcdc; }
-.opshelper-archive-actions button:disabled { opacity: 0.55; cursor: wait; }
-.opshelper-archive-actions button:focus-visible,
+.opshelper-archived-filters input,
+.opshelper-archived-filters select {
+  min-width: 0; min-height: 38px; padding: 7px 10px;
+  border: 1px solid var(--g-line-strong); border-radius: 9px;
+  background: var(--g-bg); color: var(--g-text); font: inherit; font-size: 13px;
+}
+.opshelper-archived-filters input { flex: 1; }
+.opshelper-archived-filters select { flex: 0 0 min(220px, 40%); }
+.opshelper-archived-row {
+  max-width: 850px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px; border-bottom: 1px solid var(--g-line);
+}
+.opshelper-archived-row > div:first-child { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.opshelper-archived-row a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--g-text); }
+.opshelper-archived-row span { color: var(--g-muted); font-size: 12px; }
+.opshelper-archived-actions { display: flex; gap: 8px; flex: none; }
+.opshelper-archived-actions button {
+  padding: 6px 10px; border: 1px solid var(--g-line-strong); border-radius: 8px;
+  background: var(--g-bg); color: var(--g-text); cursor: pointer; font: inherit; font-size: 13px;
+}
+.opshelper-archived-actions button.danger { color: var(--g-danger); }
+.opshelper-archived-actions button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 520px) {
+  .opshelper-archived-page { padding: 16px; }
+  .opshelper-archived-filters { flex-wrap: wrap; }
+  .opshelper-archived-filters select { flex: 1 1 100%; }
+  .opshelper-archived-row { align-items: flex-start; }
+  .opshelper-archived-actions { flex-direction: column; }
+}
+
 .opshelper-conv-del:focus-visible { outline: 2px solid var(--g-accent); outline-offset: 2px; }
-@media (pointer: coarse) {
-  .opshelper-archive-actions button { min-height: 44px; }
-}
-/* 触屏没有 hover：归档按钮必须常驻可见，时间列让出位置，
+/* 触屏没有 hover：操作按钮必须常驻可见，时间列让出位置，
    否则每行右侧都是一个看不见但点得到的按钮。 */
 @media (hover: none) {
   .opshelper-conv-del { opacity: 0.55; }
@@ -403,13 +441,13 @@
   border: 1px solid var(--g-line-strong); border-radius: 12px; background: #fff;
   box-shadow: 0 10px 28px rgba(17, 24, 39, 0.18);
 }
-.opshelper-user-menu button {
+.opshelper-user-menu button, .opshelper-user-menu a {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; padding: 0 10px;
   border: 0; border-radius: 8px; background: transparent; color: var(--g-text);
   font: inherit; font-size: 13px; text-align: left; cursor: pointer;
 }
-.opshelper-user-menu button:hover,
-.opshelper-user-menu button:focus-visible { background: var(--g-field); outline: none; }
+.opshelper-user-menu button:hover, .opshelper-user-menu a:hover,
+.opshelper-user-menu button:focus-visible, .opshelper-user-menu a:focus-visible { background: var(--g-field); outline: none; }
 .opshelper-user-menu .opshelper-icon { width: 16px; height: 16px; color: var(--g-muted); }
 .opshelper-user-menu .opshelper-user-menu-logout {
   margin-top: 3px; border-top: 1px solid var(--g-line); border-radius: 0 0 8px 8px;

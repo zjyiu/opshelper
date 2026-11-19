@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import type { UserPortalSnapshot } from "@opshelper/shared";
 
 import { getUserPortalSnapshot, logout } from "@/lib/browser-api";
@@ -9,7 +10,7 @@ import { toast } from "@/lib/toast";
 import { confirm as confirmDialog } from "./ui/dialog-host";
 import { AdminAccountSettings } from "./admin-account-settings";
 import { ContainerActions, startActionState, stopActionState } from "./container-actions";
-import { IconClose, IconContainer, IconShield, IconSliders } from "./chat/icons";
+import { IconArchive, IconClose, IconContainer, IconShield, IconSliders } from "./chat/icons";
 import { StatusPill } from "./status-pill";
 import { ThemeToggle } from "./theme-toggle";
 import { UserProfileName } from "./user-profile-name";
@@ -179,6 +180,10 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
             <IconShield />
             <span>API Token</span>
           </button>
+          <Link href="/archived-conversations" role="menuitem" onClick={() => setMenuOpen(false)}>
+            <IconArchive />
+            <span>已归档的对话</span>
+          </Link>
           <ThemeToggle />
           <button className="opshelper-user-menu-logout" type="button" role="menuitem" onClick={() => void requestLogout()}>
             <span>退出登录</span>

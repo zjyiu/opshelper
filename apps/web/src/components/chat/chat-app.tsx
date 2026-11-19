@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -821,6 +822,9 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
       <main className="opshelper-main">
         <header className="opshelper-topbar opshelper-chat-topbar">
           <WorkspaceMenuButton />
+          {searchParams.get("from") === "archive" ? (
+            <Link className="opshelper-collaboration-link" href="/archived-conversations">返回归档管理</Link>
+          ) : null}
           <div className="opshelper-topbar-meta">
             <div className="opshelper-chat-agent-title">
               <AgentMark

@@ -280,6 +280,8 @@ export interface ConversationSummary {
   queuePosition: number | null;
   source: ExecutionSource | null;
   scheduleName: string | null;
+  pinnedAt: string | null;
+  archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

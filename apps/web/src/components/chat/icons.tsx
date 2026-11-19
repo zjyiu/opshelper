@@ -25,6 +25,30 @@ export function IconMenu() {
   );
 }
 
+export function IconMore() {
+  return (
+    <svg className="opshelper-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" />
+    </svg>
+  );
+}
+
+export function IconPin() {
+  return (
+    <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="m9 4 9 9-2 2-3-1-3 3-3-3 3-3-1-3zM7 17l-3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconArchive() {
+  return (
+    <svg className="opshelper-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M4 5h16v4H4zM6 9v10h12V9M10 13h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function IconChevron({ open }: { open: boolean }) {
   return (
     <svg

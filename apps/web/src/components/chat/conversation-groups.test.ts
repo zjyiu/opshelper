@@ -26,6 +26,7 @@ function conversation(
     queuePosition: null,
     source: null,
     scheduleName: null,
+    pinnedAt: null,
     createdAt: updatedAt,
     updatedAt,
   };
@@ -42,6 +43,17 @@ test("groups every conversation and orders agents by their most recently used co
   assert.deepEqual(groups[0].conversations.map((item) => item.id), ["b-latest"]);
   assert.deepEqual(groups[1].conversations.map((item) => item.id), ["a-latest", "a-old"]);
   assert.equal(groups.some((group) => group.agentKey === "agent-empty"), false);
+});
+
+test("pinned conversations move only within their agent group", () => {
+  const pinned = { ...conversation("a-pinned", "agent-a", "2026-01-01T10:00:00.000Z"), pinnedAt: "2026-01-05T10:00:00.000Z" };
+  const groups = groupConversationsByAgent([
+    pinned,
+    conversation("a-new", "agent-a", "2026-01-03T10:00:00.000Z"),
+    conversation("b-new", "agent-b", "2026-01-04T10:00:00.000Z"),
+  ], agents);
+  assert.deepEqual(groups.map((group) => group.agentKey), ["agent-b", "agent-a"]);
+  assert.deepEqual(groups[1].conversations.map((item) => item.id), ["a-pinned", "a-new"]);
 });
 
 test("filters conversation titles and keeps only groups with matching conversations", () => {

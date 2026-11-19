@@ -27,6 +27,10 @@ function services(overrides: Partial<ConversationRouteServices> = {}): Conversat
     getConversationSnapshot: async () => ({ conversation: { id: "conversation-owned" } }) as any,
     openConversationEvents: async () => (async function* () { yield "event: ready\ndata: {}\n\n"; })(),
     archiveConversation: async () => ({ id: "conversation-owned" }) as any,
+    deleteConversation: async () => {},
+    listArchivedConversations: async () => [],
+    restoreConversation: async () => {},
+    setConversationPinned: async () => {},
     renameConversation: async () => ({ id: "conversation-owned", title: "x" }) as any,
     enqueueExecution: async () => ({ id: "execution-created" }) as any,
     abortExecution: async () => ({ status: "CANCELLED" }) as any,
@@ -103,6 +107,35 @@ test("对话搜索使用登录用户和指定智能体范围，并拒绝无效�
     assert.equal((await app.inject("/v1/conversations/search?query=")).statusCode, 400);
     assert.equal((await app.inject("/v1/conversations/search?query=x&agentKey=invalid_key")).statusCode, 400);
     assert.equal(calls.length, 1);
+  } finally { await app.close(); }
+});
+
+test("置顶、归档列表、恢复和永久删除使用登录用户并传播冲突", async () => {
+  const calls: unknown[] = [];
+  const app = Fastify();
+  await registerConversationRoutes(app, services({
+    listArchivedConversations: async (userId) => { calls.push(["list", userId]); return []; },
+    setConversationPinned: async (userId, id, pinned) => { calls.push(["pin", userId, id, pinned]); },
+    restoreConversation: async (userId, id) => { calls.push(["restore", userId, id]); },
+    deleteConversation: async (userId, id) => {
+      calls.push(["delete", userId, id]);
+      if (id === "busy") throw new ConversationServiceError("对话正在执行", 409);
+      if (id === "foreign") throw new ConversationServiceError("对话不存在", 404);
+    },
+  }));
+  try {
+    assert.equal((await app.inject("/v1/conversations/archived")).statusCode, 200);
+    assert.equal((await app.inject({ method: "PUT", url: "/v1/conversations/a/pin", payload: { pinned: true } })).statusCode, 204);
+    assert.equal((await app.inject({ method: "PUT", url: "/v1/conversations/a/pin", payload: { pinned: "true" } })).statusCode, 400);
+    assert.equal((await app.inject({ method: "PUT", url: "/v1/conversations/a/pin", payload: { pinned: true, userId: "other" } })).statusCode, 400);
+    assert.equal((await app.inject({ method: "POST", url: "/v1/conversations/a/restore" })).statusCode, 204);
+    assert.equal((await app.inject({ method: "POST", url: "/v1/conversations/a/permanent-delete" })).statusCode, 204);
+    assert.equal((await app.inject({ method: "POST", url: "/v1/conversations/busy/permanent-delete" })).statusCode, 409);
+    assert.equal((await app.inject({ method: "POST", url: "/v1/conversations/foreign/permanent-delete" })).statusCode, 404);
+    assert.deepEqual(calls, [
+      ["list", "owner-user"], ["pin", "owner-user", "a", true], ["restore", "owner-user", "a"],
+      ["delete", "owner-user", "a"], ["delete", "owner-user", "busy"], ["delete", "owner-user", "foreign"],
+    ]);
   } finally { await app.close(); }
 });
 

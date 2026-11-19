@@ -6,6 +6,10 @@ import {
   ConversationServiceError,
   abortExecution,
   archiveConversation,
+  deleteConversation,
+  listArchivedConversations,
+  restoreConversation,
+  setConversationPinned,
   renameConversation,
   createConversation,
   enqueueExecution,
@@ -79,6 +83,10 @@ export interface ConversationRouteServices {
   getCollaborationSnapshot: typeof getCollaborationSnapshot;
   openConversationEvents: typeof openConversationEvents;
   archiveConversation: typeof archiveConversation;
+  deleteConversation: typeof deleteConversation;
+  listArchivedConversations: typeof listArchivedConversations;
+  restoreConversation: typeof restoreConversation;
+  setConversationPinned: typeof setConversationPinned;
   renameConversation: typeof renameConversation;
   enqueueExecution: typeof enqueueExecution;
   abortExecution: typeof abortExecution;
@@ -97,6 +105,10 @@ const defaultServices: ConversationRouteServices = {
   getCollaborationSnapshot,
   openConversationEvents,
   archiveConversation,
+  deleteConversation,
+  listArchivedConversations,
+  restoreConversation,
+  setConversationPinned,
   renameConversation,
   enqueueExecution,
   abortExecution,
@@ -117,6 +129,49 @@ export async function registerConversationRoutes(
     const user = await services.requireSession(request, reply);
     if (!user) return;
     return services.listConversationHome(user.id);
+  });
+
+  app.get("/v1/conversations/archived", async (request, reply) => {
+    const user = await services.requireSession(request, reply);
+    if (!user) return;
+    return services.listArchivedConversations(user.id);
+  });
+
+  app.put<{ Params: { conversationId: string } }>("/v1/conversations/:conversationId/pin", async (request, reply) => {
+    const user = await services.requireSession(request, reply);
+    if (!user) return;
+    const parsed = z.object({ pinned: z.boolean() }).strict().safeParse(request.body);
+    if (!id.safeParse(request.params.conversationId).success || !parsed.success) return invalid(reply);
+    try {
+      await services.setConversationPinned(user.id, request.params.conversationId, parsed.data.pinned);
+      return reply.code(204).send();
+    } catch (error) {
+      return sendServiceError(error, reply);
+    }
+  });
+
+  app.post<{ Params: { conversationId: string } }>("/v1/conversations/:conversationId/restore", async (request, reply) => {
+    const user = await services.requireSession(request, reply);
+    if (!user) return;
+    if (!id.safeParse(request.params.conversationId).success) return invalid(reply);
+    try {
+      await services.restoreConversation(user.id, request.params.conversationId);
+      return reply.code(204).send();
+    } catch (error) {
+      return sendServiceError(error, reply);
+    }
+  });
+
+  app.post<{ Params: { conversationId: string } }>("/v1/conversations/:conversationId/permanent-delete", async (request, reply) => {
+    const user = await services.requireSession(request, reply);
+    if (!user) return;
+    if (!id.safeParse(request.params.conversationId).success) return invalid(reply);
+    try {
+      await services.deleteConversation(user.id, request.params.conversationId);
+      return reply.code(204).send();
+    } catch (error) {
+      return sendServiceError(error, reply);
+    }
   });
 
   app.get<{ Querystring: { query?: string; agentKey?: string | string[] } }>(
