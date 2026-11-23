@@ -8,7 +8,7 @@ import {
   listUserApiTokens,
   type UserApiToken,
 } from "@/lib/browser-api";
-import { copyText } from "./file-manager/utils";
+import { copyText } from "@/lib/clipboard";
 import { confirm } from "./ui/dialog-host";
 
 export function UserApiTokens({ onCreatingChange }: { onCreatingChange: (creating: boolean) => void }) {

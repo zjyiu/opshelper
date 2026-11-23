@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import type { SsoTokenResponse } from "@opshelper/shared";
 
-import { copyText } from "./file-manager/utils";
+import { copyText } from "@/lib/clipboard";
 
 export function SsoTokenDialog({
   result,

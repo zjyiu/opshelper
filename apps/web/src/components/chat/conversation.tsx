@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import type { ConversationCollaboration, ExecutionSummary } from "@opshelper/shared";
 
+import { copyText as writeClipboardText } from "@/lib/clipboard";
 import { AgentMark, type Assistant } from "./assistant";
 import { CollaborationBar } from "./collaboration-bar";
 import {
@@ -70,7 +71,7 @@ const activeStatuses: ExecutionSummary["status"][] = [
   "running",
   "waiting_input",
 ];
-const issueStatuses: ExecutionSummary["status"][] = ["failed", "cancelled", "interrupted"];
+const issueStatuses: ExecutionSummary["status"][] = ["failed", "interrupted"];
 
 function findLastIndex<T>(items: T[], predicate: (item: T) => boolean) {
   for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -211,8 +212,7 @@ export function Conversation({
 
   const copyUserMessage = async (message: ChatMessage) => {
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("当前浏览器不支持复制");
-      await navigator.clipboard.writeText(partsText(message.parts));
+      await writeClipboardText(partsText(message.parts));
       toast.success("消息已复制");
     } catch (error) {
       toast.error(error instanceof Error ? `复制失败：${error.message}` : "复制失败");
@@ -389,7 +389,6 @@ function ExecutionState({
 }) {
   const labels: Partial<Record<ExecutionSummary["status"], string>> = {
     failed: "处理失败",
-    cancelled: "已停止",
     interrupted: "执行状态无法确认，工作台已暂停",
   };
   const label = labels[execution.status];
@@ -479,8 +478,7 @@ const AssistantTurn = memo(function AssistantTurn({
                 title="复制回答"
                 onClick={async () => {
                   try {
-                    if (!navigator.clipboard?.writeText) throw new Error("当前浏览器不支持复制");
-                    await navigator.clipboard.writeText(copyText);
+                    await writeClipboardText(copyText);
                     toast.success("回答已复制");
                   } catch (error) {
                     toast.error(error instanceof Error ? `复制失败：${error.message}` : "复制失败");
@@ -587,8 +585,7 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return;
     }
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("当前浏览器不支持复制");
-      await navigator.clipboard.writeText(code);
+      await writeClipboardText(code);
       toast.success("代码已复制");
     } catch (error) {
       toast.error(error instanceof Error ? `复制失败：${error.message}` : "复制失败");

@@ -8,8 +8,9 @@
   --g-shadow-sm: 0 8px 20px color-mix(in srgb, var(--g-accent) 8%, transparent);
   --g-side-w: var(--g-side-user, var(--g-side-default));
   --g-op-viewport: 292px;       /* 操作记录明细区的固定高度，约 4 行 */
-  /* 阅读列：正文、输入区、提示与授权卡片共用宽度上限，大屏时同步加宽。 */
-  --g-read-w: 800px;
+  /* 阅读列相对于聊天区域；内容区有 24px 的左右内边距。 */
+  --g-chat-column: 55%;
+  --g-chat-content-width: calc(var(--g-chat-column) + 26.4px);
   --g-radius-card: 24px;
   /* 等宽字体：代码、命令、文件路径、智能体 key。--font-display 是 Space Grotesk，
      它是比例字体（且只含拉丁），拿来做代码会渲染成非等宽，所以另立一个 token。 */
@@ -555,12 +556,12 @@
 /* The conversation + its floating preview card share a positioned stage so the
    card can pin to the top-right of the chat area without overlapping the topbar. */
 .opshelper-stage {
-  --g-composer-width: calc(55% + 26.4px);
+  --g-composer-width: var(--g-chat-content-width);
   position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column;
   background: #fff;
 }
 /* 新会话空状态：欢迎内容与输入框作为一组垂直居中，而不是输入框贴底。 */
-.opshelper-stage-empty { justify-content: center; padding-bottom: 56px; --g-read-w: 680px; }
+.opshelper-stage-empty { justify-content: center; padding-bottom: 56px; }
 .opshelper-stage-empty .opshelper-conversation { padding-bottom: 0; }
 .opshelper-stage-empty .opshelper-composer { padding-top: 0; }
 .opshelper-stage-empty .opshelper-conversation { flex: 0 0 auto; overflow: visible; }
@@ -627,7 +628,7 @@
 
 .opshelper-msg {
   display: flex; flex-direction: column; width: 100%;
-  max-width: calc(55% + 26.4px);
+  max-width: var(--g-chat-content-width);
 }
 .opshelper-msg-user { align-items: flex-end; }
 /* 用户气泡用中性浅底：这块内容用户早已知道，最重的颜色留给回答。
@@ -988,10 +989,9 @@
   50% { opacity: 1; transform: scale(1); }
 }
 
-/* 提示、提问、授权三类卡片与正文共用同一条阅读列：width:100% + max-width 才能
-   在 flex 列里既拉伸到可用宽度、又被阅读列封顶，auto 边距负责居中。 */
+/* 提示、提问、授权卡片与正文共用居中的阅读列。 */
 .opshelper-notice {
-  flex: 0 0 auto; margin: 0 auto 8px; width: 100%; max-width: var(--g-read-w);
+  flex: 0 0 auto; margin: 0 auto 8px; width: var(--g-chat-column);
   display: flex; align-items: center; gap: 12px;
   background: #fdecec; color: #dc2626;
   border: 1px solid #f6cccc; border-radius: 11px;
@@ -1008,7 +1008,7 @@
 
 /* ---- model-initiated question card ---- */
 .opshelper-question {
-  flex: 0 0 auto; margin: 0 auto 10px; width: 100%; max-width: var(--g-read-w);
+  flex: 0 0 auto; margin: 0 auto 10px; width: var(--g-chat-column);
   border: 1px solid var(--g-accent-line); background: var(--g-accent-soft);
   border-radius: 14px; padding: 16px 18px; box-shadow: var(--g-shadow-sm);
 }
@@ -1042,7 +1042,7 @@
 
 /* ---- tool / command authorization card ---- */
 .opshelper-permission {
-  flex: 0 0 auto; margin: 0 auto 10px; width: 100%; max-width: var(--g-read-w);
+  flex: 0 0 auto; margin: 0 auto 10px; width: var(--g-chat-column);
   border: 1px solid #fde2b8; background: #fff8ec;
   border-radius: 14px; padding: 14px 16px; box-shadow: var(--g-shadow-sm);
 }
@@ -1331,7 +1331,10 @@
 .opshelper-attachment-empty, .opshelper-attachment-error { padding: 28px 12px; text-align: center; color: var(--g-faint); font-size: 13px; }
 .opshelper-attachment-error { color: #b3423a; }
 
-.opshelper-execution-stack { width: 100%; max-width: var(--g-read-w); }
+.opshelper-execution-stack {
+  width: 100%; max-width: var(--g-chat-content-width);
+  padding-left: 52px; /* 智能体标识 36px + 消息间距 16px */
+}
 /* Collaboration summaries can be placed inline beneath the operation list for their turn. */
 .opshelper-collaboration-strip {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
@@ -1397,10 +1400,6 @@
   .opshelper-attach-spinner { animation: none; transition: none; }
 }
 
-/* 按网页逻辑宽度适配大屏；实际列宽仍由所在区域的可用宽度约束。 */
-@media (min-width: 1600px) {
-  .opshelper-shell { --g-read-w: 1040px; }
-}
 @media (max-width: 1080px) {
   .opshelper-reference-dialog { height: min(640px, 88vh); min-height: min(440px, 88vh); max-height: 88vh; }
 }
@@ -1410,6 +1409,8 @@
 @media (max-width: 640px) {
   .opshelper-shell {
     --g-side-w: min(84vw, 320px);
+    --g-chat-column: calc(100% - 20px);
+    --g-chat-content-width: 100%;
     /* 抽屉是触屏场景：所有可点元素抬到 44px，文字按钮也一样。 */
     --g-control-h: 44px;
     grid-template-columns: minmax(0, 1fr);
@@ -1447,8 +1448,6 @@
   .opshelper-collaboration-strip { padding: 6px 10px 8px; }
   .opshelper-collaboration-list { max-height: min(200px, 26vh); }
   .opshelper-operation-status { grid-column: 3; grid-row: 1; margin-top: 2px; }
-  /* 窄屏上阅读列就是可用宽度：提示与卡片只留 10px 边距。 */
-  .opshelper-notice, .opshelper-question, .opshelper-permission { width: calc(100% - 20px); max-width: none; }
   .opshelper-reference-dialog { height: min(720px, 90vh); min-height: min(360px, 90vh); max-height: 90vh; }
   .opshelper-reference-tabs { gap: 2px; padding: 10px 8px 6px; }
   .opshelper-reference-tabs button { flex: 1; min-width: 0; padding: 0 5px; font-size: 12px; }

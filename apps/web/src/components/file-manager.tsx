@@ -27,13 +27,13 @@ import {
   prompt as promptDialog,
 } from "./ui/dialog-host";
 import { toast } from "@/lib/toast";
+import { copyText } from "@/lib/clipboard";
 import { uploadStore } from "@/lib/upload-store";
 import { usePageRefresh } from "./navigation-refresh";
 import { useWorkspace } from "./workspace-shell";
 import {
   categorizeUploadPath,
   collectDroppedFiles,
-  copyText,
   expandedPathsStorageKey,
   fileDragMimeType,
   formatDate,
