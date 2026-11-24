@@ -36,7 +36,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: ReactNode;
 }>) {
-  const theme = (await cookies()).get("opshelper-theme")?.value === "gray" ? "gray" : "green";
+  const theme = (await cookies()).get("opshelper-theme")?.value === "green" ? "green" : "gray";
 
   return (
     <html lang="zh-CN" data-theme={theme}>

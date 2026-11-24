@@ -21,6 +21,7 @@ import {
   reconcileInterruptedExecution,
   replyConversationPermission,
   replyConversationQuestion,
+  saveConversationAgentOrder,
   searchConversationContent,
 } from "../lib/conversation-service";
 import { requireSession } from "../lib/session";
@@ -61,6 +62,9 @@ const conversationSearchQuerySchema = z.object({
   query: z.string().trim().min(1).max(200),
   agentKey: z.union([agentKey, z.array(agentKey).max(50)]).optional(),
 }).strict();
+const agentOrderSchema = z.object({
+  agentOrder: z.array(agentKey),
+}).strict();
 
 function invalid(reply: FastifyReply, message = "请求内容不正确") {
   return reply.code(400).send({ message });
@@ -76,6 +80,7 @@ function sendServiceError(error: unknown, reply: FastifyReply) {
 export interface ConversationRouteServices {
   requireSession: typeof requireSession;
   listConversationHome: typeof listConversationHome;
+  saveConversationAgentOrder: typeof saveConversationAgentOrder;
   searchConversationContent: typeof searchConversationContent;
   createConversation: typeof createConversation;
   forkConversation: typeof forkConversation;
@@ -98,6 +103,7 @@ export interface ConversationRouteServices {
 const defaultServices: ConversationRouteServices = {
   requireSession,
   listConversationHome,
+  saveConversationAgentOrder,
   searchConversationContent,
   createConversation,
   forkConversation,
@@ -129,6 +135,15 @@ export async function registerConversationRoutes(
     const user = await services.requireSession(request, reply);
     if (!user) return;
     return services.listConversationHome(user.id);
+  });
+
+  app.put("/v1/conversations/agent-order", async (request, reply) => {
+    const user = await services.requireSession(request, reply);
+    if (!user) return;
+    const parsed = agentOrderSchema.safeParse(request.body);
+    if (!parsed.success) return invalid(reply);
+    const agentOrder = await services.saveConversationAgentOrder(user.id, parsed.data.agentOrder);
+    return { agentOrder };
   });
 
   app.get("/v1/conversations/archived", async (request, reply) => {

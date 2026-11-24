@@ -352,6 +352,7 @@ export interface ConversationSnapshot {
 
 export interface ConversationsResponse {
   agents: ConversationAgent[];
+  agentOrder: string[];
   conversations: ConversationSummary[];
   executionBlockedReason: string | null;
 }

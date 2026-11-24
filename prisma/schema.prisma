@@ -82,6 +82,7 @@ model User {
   role               UserRole            @default(USER)
   isActive           Boolean             @default(true)
   keepContainerAlive Boolean             @default(false)
+  conversationAgentOrder String[]        @default([])
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   sessions           Session[]

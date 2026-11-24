@@ -7,6 +7,17 @@ export interface ConversationGroup {
   conversations: ConversationSummary[];
 }
 
+export function getActiveConversationGroupKey(
+  groups: readonly ConversationGroup[],
+  activeConversationId: string | null,
+  activeAgentKey: string | null,
+) {
+  return groups.find((group) =>
+    group.conversations.some((conversation) => conversation.id === activeConversationId))?.agentKey
+    ?? groups.find((group) => group.agentKey === activeAgentKey)?.agentKey
+    ?? null;
+}
+
 function updatedAtTime(conversation: ConversationSummary) {
   const timestamp = Date.parse(conversation.updatedAt);
   return Number.isNaN(timestamp) ? 0 : timestamp;
@@ -16,6 +27,7 @@ export function groupConversationsByAgent(
   conversations: readonly ConversationSummary[],
   agents: readonly ConversationAgent[],
   searchTerm = "",
+  agentOrder: readonly string[] = [],
 ): ConversationGroup[] {
   const agentDetails = new Map(agents.map((agent) => [agent.key, agent]));
   const term = searchTerm.trim().toLowerCase();
@@ -39,6 +51,7 @@ export function groupConversationsByAgent(
     group.conversations.push(conversation);
   }
 
+  const agentPositions = new Map(agentOrder.map((key, index) => [key, index]));
   return [...groups.values()]
     .map((group) => ({
       ...group,
@@ -50,5 +63,8 @@ export function groupConversationsByAgent(
           return updatedAtTime(right) - updatedAtTime(left);
         }),
     }))
-    .filter((group) => group.conversations.length > 0);
+    .filter((group) => group.conversations.length > 0)
+    .sort((left, right) =>
+      (agentPositions.get(left.agentKey) ?? Number.MAX_SAFE_INTEGER)
+      - (agentPositions.get(right.agentKey) ?? Number.MAX_SAFE_INTEGER));
 }

@@ -2928,17 +2928,12 @@ select:focus-visible {
 }
 
 .login-shell {
-  /* The sign-in page keeps its original palette independently of the workspace preference. */
-  --g-accent: #00a651;
-  --g-accent-dark: #00843d;
-  --g-accent-soft: #e6f4ea;
-  --g-field: #f1f5f9;
-  --bg: #f8fafc;
+  --bg: var(--g-canvas);
   --panel: #ffffff;
-  --line: rgba(100, 116, 139, 0.12);
-  --line-strong: rgba(100, 116, 139, 0.2);
-  --text: #1f2937;
-  --muted: #64748b;
+  --line: var(--g-line);
+  --line-strong: var(--g-line-strong);
+  --text: var(--g-text);
+  --muted: var(--g-muted);
   --accent: var(--g-accent);
   --accent-hover: var(--g-accent-dark);
   --accent-soft: color-mix(in srgb, var(--g-accent) 10%, transparent);
@@ -2949,19 +2944,19 @@ select:focus-visible {
 }
 
 .login-shell ::selection {
-  background: rgba(5, 150, 105, 0.24);
+  background: var(--g-accent-soft);
   color: #312e81;
 }
 
 .login-shell ::-moz-selection {
-  background: rgba(5, 150, 105, 0.24);
+  background: var(--g-accent-soft);
   color: #312e81;
 }
 
 @supports (background-color: color-mix(in srgb, black, transparent)) {
-  .login-shell ::selection {
+  .login-shell ::selection,
+  .login-shell ::-moz-selection {
     background: color-mix(in srgb, var(--g-accent) 16%, transparent);
-    color: #312e81;
   }
 }
 
@@ -2971,7 +2966,7 @@ select:focus-visible {
     radial-gradient(ellipse 65% 50% at 50% 0%, color-mix(in srgb, var(--g-accent) 12%, transparent), transparent 70%),
     radial-gradient(circle 480px at 85% 85%, rgba(236, 72, 153, 0.06), transparent 70%),
     radial-gradient(circle 400px at 15% 75%, color-mix(in srgb, var(--g-accent) 5%, transparent), transparent 60%),
-    linear-gradient(160deg, #ffffff 0%, #f3faf5 52%, var(--g-accent-soft) 100%);
+    linear-gradient(160deg, #ffffff 0%, var(--g-canvas) 52%, var(--g-accent-soft) 100%);
 }
 
 
@@ -3408,7 +3403,16 @@ select:focus-visible {
 }
 
 .agent-editor-header {
-  align-items: flex-start;
+  align-items: center;
+}
+
+.agent-editor-management-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .agent-facts {
@@ -4429,6 +4433,15 @@ select:focus-visible {
 
   .agent-admin-detail-mode .agent-editor-header .button {
     width: 100%;
+  }
+
+  .agent-admin-detail-mode .agent-editor-management-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .agent-admin-detail-mode .agent-editor-header .agent-editor-management-actions .button {
+    width: auto;
   }
 
   .agent-file-workspace {

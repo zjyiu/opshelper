@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 import type { ForkConversationResponse } from "@opshelper/shared";
+import { reconcileAgentOrder, sameAgentOrder } from "./chat/agent-order";
+import { groupConversationsByAgent } from "./chat/conversation-groups";
 
 // Exercise the provider's actual callbacks without mounting Next's router.
 const source = ts.createSourceFile(
@@ -20,6 +24,48 @@ const chatSource = ts.createSourceFile(
   true,
   ts.ScriptKind.TSX,
 );
+
+test("user bar shows the agent directory icon only for non-admin users", () => {
+  let userbar: ts.JsxElement | undefined;
+  function visit(node: ts.Node) {
+    if (ts.isJsxElement(node) && node.openingElement.attributes.properties.some(
+      (attribute) => ts.isJsxAttribute(attribute)
+        && attribute.name.getText(source) === "className"
+        && attribute.initializer?.getText(source) === '"opshelper-userbar"',
+    )) userbar = node;
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.ok(userbar);
+  const script = ts.transpileModule(`globalThis.renderUserbar = (user, pathname) => (${userbar.getText(source)});`, {
+    compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const context = vm.createContext({
+    React,
+    Link: ({ children, href, prefetch: _prefetch, onNavigate: _onNavigate, ...props }: React.PropsWithChildren<{
+      href: string;
+      prefetch?: boolean;
+      onNavigate?: () => void;
+    }>) =>
+      React.createElement("a", { href, ...props }, children),
+    IconSettings: () => React.createElement("svg", { "data-icon": "settings" }),
+    UserProfileMenu: () => React.createElement("span", null, "用户"),
+    setShowSidebar: () => {},
+    refreshCurrentPage: () => {},
+    router: {},
+  });
+  vm.runInContext(script, context);
+  const renderUserbar = context.renderUserbar as (user: { role: string }, pathname: string) => React.ReactNode;
+  const regular = renderToStaticMarkup(renderUserbar({ role: "user" }, "/agents"));
+  assert.match(regular, /href="\/agents"/);
+  assert.match(regular, /aria-label="智能体目录"/);
+  assert.match(regular, /data-icon="settings"/);
+  assert.match(regular, /aria-current="page"/);
+  assert.doesNotMatch(regular, /href="\/admin"/);
+  const admin = renderToStaticMarkup(renderUserbar({ role: "admin" }, "/chat"));
+  assert.match(admin, /href="\/admin"/);
+  assert.doesNotMatch(admin, /href="\/agents"/);
+});
 
 function callback(name: string, file = source) {
   let initializer: string | undefined;
@@ -46,6 +92,7 @@ const fork = { id: "fork", leadAgentKey: "agent-a" };
 const other = { id: "other", leadAgentKey: "agent-b" };
 const home = {
   agents: [{ key: "agent-a" }, { key: "agent-b" }],
+  agentOrder: [] as string[],
   conversations: [fork, other],
   executionBlockedReason: null,
 };
@@ -64,6 +111,7 @@ function workspace(
   const state = {
     conversation: "source" as string | null,
     agent: "agent-a" as string | null,
+    agentOrder: [] as string[],
     conversations: [] as typeof home.conversations,
     url: "/chat?conversation=source",
     input: "current draft",
@@ -101,6 +149,12 @@ function workspace(
     createClientId: () => "attachment-id",
     navigationGenerationRef: { current: 0 },
     homeRefreshSequenceRef: { current: 0 },
+    agentOrderInitializedRef: { current: false },
+    agentOrderRef: { current: [] as string[] },
+    groupConversationsByAgent,
+    reconcileAgentOrder,
+    sameAgentOrder,
+    persistAgentOrder: async () => {},
     activeConversationRef: { current: state.conversation },
     activeAgentKeyRef: { current: state.agent },
     setActiveConversationId: (id: string | null) => {
@@ -118,6 +172,7 @@ function workspace(
       state.conversations = typeof items === "function" ? items(state.conversations) : items;
     },
     setAgents: noop,
+    setAgentOrder: (order: string[]) => { state.agentOrder = order; },
     setExecutionBlockedReason: noop,
     storedValue: () => null,
     storeValue: noop,

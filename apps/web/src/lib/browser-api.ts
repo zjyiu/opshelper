@@ -337,6 +337,14 @@ export async function listConversations() {
   return fetchJson<ConversationsResponse>("/v1/conversations", { cache: "no-store" });
 }
 
+export async function saveConversationAgentOrder(agentOrder: string[]) {
+  return fetchJson<{ agentOrder: string[] }>("/v1/conversations/agent-order", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ agentOrder }),
+  });
+}
+
 export async function listArchivedConversations() {
   return fetchJson<ConversationSummary[]>("/v1/conversations/archived", { cache: "no-store" });
 }

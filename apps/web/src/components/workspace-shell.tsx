@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
@@ -22,10 +21,10 @@ import type {
   ConversationSummary,
 } from "@opshelper/shared";
 
-import agentDirectoryIcon from "../../public/brand/agent-directory.png";
 import {
   archiveConversation,
   deleteConversation,
+  saveConversationAgentOrder,
   setConversationPinned,
   renameConversation,
   getConversation,
@@ -33,7 +32,8 @@ import {
   searchConversations,
 } from "@/lib/browser-api";
 import { AgentMark } from "./chat/assistant";
-import { groupConversationsByAgent } from "./chat/conversation-groups";
+import { getActiveConversationGroupKey, groupConversationsByAgent } from "./chat/conversation-groups";
+import { moveAgentOrder, reconcileAgentOrder, sameAgentOrder } from "./chat/agent-order";
 import { runConversationBatch, toggleConversationSelection } from "./chat/conversation-batch";
 import { cleanTitle, formatConversationTime, formatConversationTimestamp, fullConversationTitle } from "./chat/format";
 import type { NewConversationRequest } from "./chat/new-conversation-request";
@@ -48,6 +48,7 @@ import {
   IconArchive,
   IconPin,
   IconSidePanel,
+  IconSettings,
   IconSearch,
   IconTrash,
 } from "./chat/icons";
@@ -69,6 +70,7 @@ type WorkspaceUser = {
 
 interface WorkspaceContextValue {
   agents: ConversationAgent[];
+  agentOrder: string[];
   conversations: ConversationSummary[];
   activeAgent: ConversationAgent | null;
   activeConversationId: string | null;
@@ -86,6 +88,7 @@ interface WorkspaceContextValue {
   removeConversation: (conversationId: string) => Promise<void>;
   deleteConversationPermanently: (conversationId: string) => Promise<void>;
   pinConversation: (conversationId: string, pinned: boolean) => Promise<void>;
+  reorderAgentGroups: (activeKey: string, targetKey: string) => void;
   setShowSidebar: (value: boolean) => void;
 }
 
@@ -126,6 +129,7 @@ export function WorkspaceShell({
   useRouteRefresh();
   const searchParams = useSearchParams();
   const [agents, setAgents] = useState<ConversationAgent[]>([]);
+  const [agentOrder, setAgentOrder] = useState<string[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeAgentKey, setActiveAgentKey] = useState<string | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -147,12 +151,33 @@ export function WorkspaceShell({
   const activeConversationRef = useRef<string | null>(null);
   const navigationGenerationRef = useRef(0);
   const homeRefreshSequenceRef = useRef(0);
+  const agentOrderRef = useRef<string[]>([]);
+  const agentOrderInitializedRef = useRef(false);
+  const agentOrderSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const handledNewRouteRef = useRef<string | null>(null);
   // 不在会话列表里的对话（定时任务）每换一次链接只尝试打开一次，避免重复请求和提示。
   const requestedConversationRef = useRef<string | null>(null);
   // Archive callbacks may outlive the route they were invoked from.
   const currentRouteRef = useRef({ pathname, conversationId: searchParams.get("conversation") });
   currentRouteRef.current = { pathname, conversationId: searchParams.get("conversation") };
+
+  const persistAgentOrder = useCallback((order: string[]) => {
+    const snapshot = [...order];
+    const save = agentOrderSaveQueueRef.current.catch(() => undefined).then(async () => {
+      await saveConversationAgentOrder(snapshot);
+    });
+    agentOrderSaveQueueRef.current = save;
+    return save;
+  }, []);
+
+  const reorderAgentGroups = useCallback((activeKey: string, targetKey: string) => {
+    const nextOrder = moveAgentOrder(agentOrderRef.current, activeKey, targetKey);
+    if (sameAgentOrder(nextOrder, agentOrderRef.current)) return;
+    agentOrderRef.current = nextOrder;
+    setAgentOrder(nextOrder);
+    void persistAgentOrder(nextOrder).catch((error: unknown) =>
+      toast.error(error instanceof Error ? error.message : "智能体顺序保存失败"));
+  }, [persistAgentOrder]);
 
   const setActiveAgent = useCallback((agentKey: string | null) => {
     navigationGenerationRef.current += 1;
@@ -184,6 +209,22 @@ export function WorkspaceShell({
     setAgents(home.agents);
     setConversations(home.conversations);
     setExecutionBlockedReason(home.executionBlockedReason);
+    if (!agentOrderInitializedRef.current) {
+      const initialOrder = groupConversationsByAgent(home.conversations, home.agents)
+        .map((group) => group.agentKey);
+      const nextOrder = reconcileAgentOrder(
+        home.agentOrder,
+        home.agents.map((agent) => agent.key),
+        initialOrder,
+      );
+      agentOrderInitializedRef.current = true;
+      agentOrderRef.current = nextOrder;
+      setAgentOrder(nextOrder);
+      if (!sameAgentOrder(nextOrder, home.agentOrder)) {
+        void persistAgentOrder(nextOrder).catch((error: unknown) =>
+          toast.error(error instanceof Error ? error.message : "智能体顺序保存失败"));
+      }
+    }
 
     // Refresh the list, but preserve any navigation made while it was loading.
     if (!activate || generation !== navigationGenerationRef.current) return;
@@ -220,7 +261,22 @@ export function WorkspaceShell({
       if (latest) activateConversation(latest.id, latest.leadAgentKey);
       else clearActiveConversation();
     }
-  }, [activateConversation, clearActiveConversation, setActiveAgent]);
+  }, [activateConversation, clearActiveConversation, persistAgentOrder, setActiveAgent]);
+
+  useEffect(() => {
+    if (loading || !agentOrderInitializedRef.current) return;
+    const initialOrder = groupConversationsByAgent(conversations, agents).map((group) => group.agentKey);
+    const nextOrder = reconcileAgentOrder(
+      agentOrder,
+      agents.map((agent) => agent.key),
+      initialOrder,
+    );
+    if (sameAgentOrder(nextOrder, agentOrder)) return;
+    agentOrderRef.current = nextOrder;
+    setAgentOrder(nextOrder);
+    void persistAgentOrder(nextOrder).catch((error: unknown) =>
+      toast.error(error instanceof Error ? error.message : "智能体顺序保存失败"));
+  }, [agentOrder, agents, conversations, loading, persistAgentOrder]);
 
   useEffect(() => {
     const requested = searchParams.get("conversation");
@@ -375,6 +431,7 @@ export function WorkspaceShell({
 
   const contextValue = useMemo<WorkspaceContextValue>(() => ({
     agents,
+    agentOrder,
     conversations,
     activeAgent,
     activeConversationId,
@@ -391,6 +448,7 @@ export function WorkspaceShell({
     removeConversation,
     deleteConversationPermanently,
     pinConversation,
+    reorderAgentGroups,
     renameConversationTitle,
     setShowSidebar,
   }), [
@@ -398,6 +456,7 @@ export function WorkspaceShell({
     activeConversationId,
     acknowledgeNewConversationRequest,
     activateConversation,
+    agentOrder,
     agents,
     conversations,
     executionBlockedReason,
@@ -407,6 +466,7 @@ export function WorkspaceShell({
     removeConversation,
     deleteConversationPermanently,
     pinConversation,
+    reorderAgentGroups,
     renameConversationTitle,
     selectAgent,
     showSidebar,
@@ -563,6 +623,7 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   const pathname = usePathname();
   const {
     agents,
+    agentOrder,
     conversations,
     activeAgent,
     activeConversationId,
@@ -572,6 +633,7 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
     removeConversation,
     deleteConversationPermanently,
     pinConversation,
+    reorderAgentGroups,
     renameConversationTitle,
     refreshHome,
     showSidebar,
@@ -725,9 +787,25 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   };
 
   const conversationGroups = useMemo(
-    () => groupConversationsByAgent(conversations, agents),
-    [agents, conversations],
+    () => groupConversationsByAgent(conversations, agents, "", agentOrder),
+    [agentOrder, agents, conversations],
   );
+  const draggedAgentKeyRef = useRef<string | null>(null);
+  const onAgentGroupDragStart = (event: React.DragEvent<HTMLDivElement>, agentKey: string) => {
+    draggedAgentKeyRef.current = agentKey;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", agentKey);
+  };
+  const onAgentGroupDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  };
+  const onAgentGroupDrop = (event: React.DragEvent<HTMLDivElement>, targetKey: string) => {
+    event.preventDefault();
+    const activeKey = draggedAgentKeyRef.current ?? event.dataTransfer.getData("text/plain");
+    if (activeKey) reorderAgentGroups(activeKey, targetKey);
+    draggedAgentKeyRef.current = null;
+  };
   const selectedConversations = conversations.filter((item) => selectedIds.has(item.id));
   const toggleSelection = (ids: string[]) => {
     setSelectedIds((current) => toggleConversationSelection(current, ids));
@@ -760,11 +838,11 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
       setBatchBusy(false);
     }
   };
-  const currentAgentGroupKey = conversationGroups.find((group) =>
-    group.conversations.some((item) => item.id === activeConversationId))?.agentKey
-    ?? conversationGroups.find((group) => group.agentKey === activeAgent?.key)?.agentKey
-    ?? conversationGroups[0]?.agentKey
-    ?? null;
+  const currentAgentGroupKey = getActiveConversationGroupKey(
+    conversationGroups,
+    activeConversationId,
+    activeAgent?.key ?? null,
+  );
 
   useEffect(() => {
     setExpandedAgentKey(currentAgentGroupKey);
@@ -884,27 +962,6 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
 
         <div className="opshelper-shortcuts">
           <Link
-            className={`opshelper-shortcut${pathname.endsWith("/agents") ? " active" : ""}`}
-            href="/agents"
-            prefetch={false}
-            title="智能体目录：创建并查看智能体"
-            aria-current={pathname.endsWith("/agents") ? "page" : undefined}
-            onNavigate={() => {
-              setShowSidebar(false);
-              if (pathname.endsWith("/agents")) refreshCurrentPage(router);
-            }}
-          >
-            <Image
-              className="opshelper-icon"
-              src={agentDirectoryIcon}
-              alt=""
-              width={16}
-              height={16}
-              aria-hidden="true"
-            />
-            <span className="opshelper-shortcut-label">智能体目录</span>
-          </Link>
-          <Link
             className={`opshelper-shortcut${pathname.endsWith("/schedules") ? " active" : ""}`}
             href="/schedules"
             prefetch={false}
@@ -954,7 +1011,15 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
             const groupSelected = groupIds.filter((id) => selectedIds.has(id)).length;
             return (
               <section className="opshelper-conversation-group" key={group.agentKey}>
-                <div className="opshelper-conversation-agent-row">
+                <div
+                  className="opshelper-conversation-agent-row"
+                  draggable={!batchMode}
+                  title={batchMode ? undefined : "拖动调整智能体顺序"}
+                  onDragStart={(event) => onAgentGroupDragStart(event, group.agentKey)}
+                  onDragOver={onAgentGroupDragOver}
+                  onDrop={(event) => onAgentGroupDrop(event, group.agentKey)}
+                  onDragEnd={() => { draggedAgentKeyRef.current = null; }}
+                >
                   {batchMode ? <SelectionCheckbox
                     label={`选择${group.agentName}的所有对话`}
                     checked={groupSelected === groupIds.length}
@@ -1120,7 +1185,22 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
           </Link>
-        ) : null}
+        ) : (
+          <Link
+            className="opshelper-admin-link"
+            href="/agents"
+            prefetch={false}
+            title="智能体目录：创建并查看智能体"
+            aria-label="智能体目录"
+            aria-current={pathname.endsWith("/agents") ? "page" : undefined}
+            onNavigate={() => {
+              setShowSidebar(false);
+              if (pathname.endsWith("/agents")) refreshCurrentPage(router);
+            }}
+          >
+            <IconSettings />
+          </Link>
+        )}
       </div>
     </aside>
     {searchOpen && typeof document !== "undefined" ? createPortal(

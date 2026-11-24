@@ -19,7 +19,8 @@ function services(overrides: Partial<ConversationRouteServices> = {}): Conversat
       role: "user",
       isActive: true,
     }) as any,
-    listConversationHome: async () => ({ agents: [], conversations: [], executionBlockedReason: null }),
+    listConversationHome: async () => ({ agents: [], agentOrder: [], conversations: [], executionBlockedReason: null }),
+    saveConversationAgentOrder: async (_userId, agentOrder) => agentOrder,
     searchConversationContent: async () => [],
     createConversation: async () => ({ id: "conversation-created" }) as any,
     forkConversation: async () => ({ conversationId: "fork-created", leadAgentKey: "network-ops", text: "", attachments: [] }),
@@ -136,6 +137,37 @@ test("置顶、归档列表、恢复和永久删除使用登录用户并传播�
       ["list", "owner-user"], ["pin", "owner-user", "a", true], ["restore", "owner-user", "a"],
       ["delete", "owner-user", "a"], ["delete", "owner-user", "busy"], ["delete", "owner-user", "foreign"],
     ]);
+  } finally { await app.close(); }
+});
+
+test("智能体顺序只保存到登录用户并拒绝无效请求", async () => {
+  const calls: unknown[] = [];
+  const app = Fastify();
+  await registerConversationRoutes(app, services({
+    saveConversationAgentOrder: async (userId, agentOrder) => {
+      calls.push([userId, agentOrder]);
+      return agentOrder;
+    },
+  }));
+  try {
+    const response = await app.inject({
+      method: "PUT",
+      url: "/v1/conversations/agent-order",
+      payload: { agentOrder: ["agent-b", "agent-a"] },
+    });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json(), { agentOrder: ["agent-b", "agent-a"] });
+    assert.deepEqual(calls, [["owner-user", ["agent-b", "agent-a"]]]);
+    assert.equal((await app.inject({
+      method: "PUT",
+      url: "/v1/conversations/agent-order",
+      payload: { agentOrder: ["invalid_key"] },
+    })).statusCode, 400);
+    assert.equal((await app.inject({
+      method: "PUT",
+      url: "/v1/conversations/agent-order",
+      payload: { agentOrder: [], userId: "other-user" },
+    })).statusCode, 400);
   } finally { await app.close(); }
 });
 

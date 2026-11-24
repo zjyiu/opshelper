@@ -260,6 +260,8 @@
   box-sizing: border-box; margin-inline: 3px; padding: 3px 4px 3px 3px;
   border-radius: 12px; transition: background 0.12s;
 }
+.opshelper-conversation-agent-row[draggable="true"] { cursor: grab; }
+.opshelper-conversation-agent-row[draggable="true"]:active { cursor: grabbing; }
 .opshelper-conversation-agent-row:hover,
 .opshelper-conversation-agent-row:focus-within { background: var(--g-bg); }
 .opshelper-conversation-agent {
@@ -687,11 +689,9 @@
 }
 .opshelper-msg-attachment .opshelper-icon { width: 14px; height: 14px; color: var(--g-muted); }
 /* 普通回答不再套白色卡片：正文自己就是内容的边界，边框只用来表达真正的分组
-   （操作记录、授权、提问、文件）。角色标识留在左侧一列，不占正文宽度。 */
-.opshelper-msg-assistant { flex-direction: row; align-items: flex-start; gap: 16px; }
-.opshelper-msg-assistant > .opshelper-agent-mark { margin-top: 2px; }
+   （操作记录、授权、提问、文件）。 */
 .opshelper-msg-assistant .opshelper-assistant-body {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;
+  flex: 0 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px;
 }
 .opshelper-assistant-actions { display: flex; align-items: center; gap: 4px; margin-top: -6px; }
 .opshelper-assistant-action {
@@ -720,7 +720,11 @@
 .opshelper-markdown h3 { font-size: 16px; }
 .opshelper-markdown ul, .opshelper-markdown ol { margin: 10px 0; padding-left: 24px; }
 .opshelper-markdown li { margin: 6px 0; }
-.opshelper-markdown a { color: var(--g-accent-dark); }
+.opshelper-markdown a {
+  color: var(--g-accent-dark);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
 .opshelper-markdown .opshelper-workspace-file-path {
   margin-left: 0.45em; color: var(--g-muted); font: 0.9em var(--g-mono); overflow-wrap: anywhere;
 }
@@ -1079,27 +1083,24 @@
   flex: 0 0 auto; padding: 10px 24px 14px; display: flex; flex-direction: column; align-items: center; gap: 6px;
   border-top: 0; background: transparent; position: relative;
 }
-/* 单行输入时工具与文本并排，多行时工具移至文本下方。 */
+/* 输入框独占一行，附件与模型等工具统一放在下方。 */
 .opshelper-composer-row {
-  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; position: relative;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px; position: relative;
   width: var(--g-composer-width); min-width: 0;
-  padding: 6px 12px; border: 0;
-  border-radius: 24px;
+  padding: 8px 12px 6px; border: 0;
+  border-radius: 18px;
   background: var(--g-bg); box-shadow: var(--g-shadow-card);
   transition: box-shadow 300ms ease-in-out, background 300ms ease-in-out;
 }
 .opshelper-composer-row:hover {
   box-shadow: var(--g-shadow-card-hover);
 }
-.opshelper-composer-tools { display: contents; }
-.opshelper-composer-multiline { flex-wrap: wrap; row-gap: 4px; }
-.opshelper-composer-multiline .opshelper-composer-tools {
-  display: flex; align-items: center; gap: 8px; flex: 1 0 100%; order: 1; min-width: 0;
+.opshelper-composer-tools {
+  display: flex; align-items: center; gap: 8px; min-width: 0; order: 1;
 }
-.opshelper-composer-multiline textarea {
-  order: 0; flex: 1 0 100%; align-self: stretch; width: 100%;
-}
-.opshelper-composer-multiline .opshelper-send { margin-left: 0; }
+.opshelper-composer-tools .opshelper-attach-menu-wrap { margin-right: auto; }
+.opshelper-composer-tools .opshelper-model-pick { margin-left: 0; }
+.opshelper-composer-tools .opshelper-send { margin-left: 0; }
 .opshelper-composer-row.opshelper-composer-expanded textarea { max-height: min(70vh, 640px); }
 .opshelper-composer-has-expand textarea { padding-right: 36px; }
 .opshelper-composer-expand {
@@ -1168,6 +1169,22 @@
 .opshelper-attach-btn:hover { color: var(--g-accent-dark); background: var(--g-field); }
 .opshelper-attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .opshelper-attach-btn .opshelper-icon { width: 19px; height: 19px; }
+.opshelper-composer-stop {
+  display: grid; flex: 0 0 34px; order: 5; place-items: center; width: 34px; height: 34px; padding: 0;
+  border: 0; border-radius: 50%; background: var(--g-accent); color: #fff; cursor: pointer;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--g-accent) 24%, transparent);
+  transition: all 300ms ease-in-out;
+}
+.opshelper-composer-stop .opshelper-icon { width: 19px; height: 19px; }
+.opshelper-composer-stop:hover:not(:disabled) {
+  background: var(--g-accent-dark);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--g-accent) 30%, transparent);
+  transform: translateY(-2px);
+}
+.opshelper-composer-stop:active:not(:disabled) { transform: scale(0.94); }
+.opshelper-composer-stop:disabled {
+  background: var(--g-field); color: var(--g-icon); cursor: wait; box-shadow: none; opacity: 1;
+}
 .opshelper-attach-menu-wrap { position: relative; flex: 0 0 auto; order: 0; }
 .opshelper-attach-menu {
   position: absolute; z-index: 20; left: 0; bottom: calc(100% + 8px);
@@ -1198,7 +1215,7 @@
 .opshelper-mention-name { font-weight: 500; flex: 0 0 auto; }
 .opshelper-mention-path { color: var(--g-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .opshelper-composer textarea {
-  flex: 1 1 0; order: 1; align-self: center; width: 0; min-width: 0; resize: none; min-height: 32px; max-height: 168px; border: none;
+  flex: 0 0 auto; order: 0; align-self: stretch; width: 100%; min-width: 0; resize: none; min-height: 32px; max-height: 168px; border: none;
   padding: 4px 0; font-size: 16px; font-family: inherit; line-height: 1.5;
   overflow-y: auto; background: transparent; color: var(--g-text); box-shadow: none;
 }
@@ -1231,16 +1248,6 @@
   background: var(--g-field); color: var(--g-icon); cursor: not-allowed;
   box-shadow: none; filter: none; opacity: 1; transform: none;
 }
-.opshelper-stop {
-  width: auto; padding: 0 11px; display: inline-flex; align-items: center; gap: 5px;
-  order: 3; margin-left: 0;
-  background: #d84941; box-shadow: none; font: inherit; font-size: 12.5px;
-}
-.opshelper-stop .opshelper-icon { width: 15px; height: 15px; }
-.opshelper-stop:disabled {
-  background: #e7b1ae; color: #fff; cursor: wait; opacity: 1;
-}
-.opshelper-queue-hint,
 .opshelper-sending-hint { order: 2; color: var(--g-muted); font-size: 12px; white-space: nowrap; }
 .opshelper-sending-hint { color: var(--g-accent-dark); }
 
@@ -1389,7 +1396,6 @@
 .opshelper-execution-state.failed, .opshelper-execution-state.interrupted { border-color: #f6cccc; color: #b3423a; }
 .opshelper-execution-state button { margin-left: auto; border: 0; background: transparent; color: inherit; cursor: pointer; text-decoration: underline; }
 .opshelper-execution-error { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.opshelper-queue-hint { color: var(--g-faint); font-size: 12px; }
 
 @media (prefers-reduced-motion: reduce) {
   .opshelper-typing-dots span,
@@ -1455,13 +1461,11 @@
   .opshelper-empty-cards { width: min(100%, 320px); }
   .opshelper-composer-row { gap: 5px; padding: 6px 8px; }
   .opshelper-composer-footer { padding-left: 17px; }
-  .opshelper-queue-hint,
   .opshelper-sending-hint {
     position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
     overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
   .opshelper-model-pick select { max-width: 110px; padding: 4px 7px; }
-  .opshelper-stop { padding: 0 7px; }
 }
 
 /* ---- 技能管理面板 ---- */
@@ -1899,14 +1903,23 @@
 }
 .opshelper-page-body .button-secondary { border-color: transparent; border-radius: 16px; font-weight: 500; }
 .opshelper-page-body .button-secondary:hover { border-color: transparent; background: var(--g-accent-soft); }
-.opshelper-page-body .agent-editor-actions > .button-secondary {
+.opshelper-page-body .agent-editor-actions > .button-secondary,
+.opshelper-page-body .agent-editor-management-actions > .button-secondary {
   border: 1px solid #cbd5e1;
   background: #fff;
   box-shadow: 0 2px 8px color-mix(in srgb, var(--g-accent) 8%, transparent);
 }
-.opshelper-page-body .agent-editor-actions > .button-secondary:hover {
+.opshelper-page-body .agent-editor-actions > .button-secondary:hover,
+.opshelper-page-body .agent-editor-management-actions > .button-secondary:hover {
   border-color: var(--g-accent);
   background: var(--g-accent-soft);
+}
+.opshelper-page-body .agent-editor-management-actions > .button,
+.opshelper-page-body .agent-editor-management-actions > .button-secondary,
+.opshelper-page-body .agent-editor-management-actions > .button-warning,
+.opshelper-page-body .agent-editor-management-actions > .agent-delete-trigger > .button-danger {
+  min-height: 44px;
+  padding: 10px 16px;
 }
 .opshelper-page-body .button-danger { background: var(--danger-bg); color: var(--danger); font-weight: 500; }
 .opshelper-page-body .button-danger:hover { background: #fbdcdc; }

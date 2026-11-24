@@ -61,7 +61,7 @@ import { usePageRefresh } from "@/components/navigation-refresh";
 import { insertEditorIndent } from "@/components/agent-editor-keys";
 
 type Tab = "catalog" | "assignments" | "models" | "instructions";
-type EditorMode = "view" | "create" | "edit";
+type EditorMode = "catalog" | "create" | "edit" | "view";
 type UserItem = AdminUsersSnapshot["users"][number];
 
 const NEW_AGENT_TEMPLATE = `---
@@ -114,10 +114,6 @@ const statusLabels = {
   ready: "已就绪",
   frozen: "已冻结",
 } as const;
-
-function shortHash(value: string | null) {
-  return value ? value.slice(0, 10) : "—";
-}
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -252,7 +248,7 @@ export function AgentManagementPanel({
   const [detail, setDetail] = useState<AgentDetail | null>(null);
   const [deleteHintDismissed, setDeleteHintDismissed] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(
-    initialCreate || !initialAgents.length ? "create" : "view",
+    initialCreate || !initialAgents.length ? "create" : "catalog",
   );
   const [agentKey, setAgentKey] = useState("");
   const [files, setFiles] = useState<Record<string, string>>({ "agent.md": NEW_AGENT_TEMPLATE });
@@ -393,7 +389,7 @@ export function AgentManagementPanel({
     setAgents(snapshot.agents);
     if (automaticCreateRef.current && pristineCreateRef.current && snapshot.agents.length > 0) {
       automaticCreateRef.current = false;
-      setEditorMode("view");
+      setEditorMode("catalog");
     }
   }
 
@@ -456,15 +452,17 @@ export function AgentManagementPanel({
   function selectAgent(key: string) {
     rememberCatalogScroll();
     setSkillRepositoryOpen(false);
+    setDetail(null);
     setSelectedKey(key);
-    setEditorMode("view");
+    const agent = agents.find((item) => item.key === key);
+    setEditorMode(adminScope || agent?.canManage ? "edit" : "view");
   }
 
   function closeAgentDetail() {
     setSkillRepositoryOpen(false);
     setSelectedKey(null);
     setDetail(null);
-    setEditorMode("view");
+    setEditorMode("catalog");
     restoreCatalogScroll();
     void refreshCatalog().catch((error) => toast.error(errorMessage(error, "刷新智能体目录失败")));
   }
@@ -640,13 +638,17 @@ export function AgentManagementPanel({
       if (editorMode === "create") {
         const response = await createAgent({ key: agentKey.trim(), files, binaryFiles }, scope);
         toast.success(adminScope ? "智能体已创建并通过检查" : "智能体已创建，正在装配到你的运行环境");
-        setEditorMode("view");
+        setEditorMode("edit");
         await refreshAgents(response.agent.key);
         if (!adminScope) await onPersonalAgentsChanged?.();
       } else if (detail) {
         await updateAgent(detail.key, { files, binaryFiles }, scope);
         toast.success(adminScope ? "目录已保存，受影响用户正在应用新配置" : "智能体已保存，正在更新你的运行环境");
-        setEditorMode("view");
+        const { agent } = await getAgent(detail.key, scope);
+        setDetail(agent);
+        setFiles(agent.files);
+        setBinaryFiles(agent.binaryFiles ?? {});
+        setEditorMode("edit");
         await refreshAgents(detail.key);
         if (!adminScope) await onPersonalAgentsChanged?.();
       }
@@ -721,7 +723,7 @@ export function AgentManagementPanel({
       setAgents((current) => current.filter((item) => item.key !== agent.key));
       setSelectedKey(null);
       setDetail(null);
-      setEditorMode("view");
+      setEditorMode("catalog");
       toast.success(`已删除智能体 ${agent.displayName}`);
       await refreshAgents(null).catch(() => {
         toast.error("智能体已删除，但目录刷新失败，请重新载入页面");
@@ -781,6 +783,45 @@ export function AgentManagementPanel({
     ? draftAgentIds.length === 0 || assignment.agents.some((agent) =>
       draftAgentIds.includes(agent.id) && agent.mode !== "subagent")
     : false;
+  const agentActions = detail && editorMode === "edit" && (adminScope || detail.canManage) ? (
+    <div className="agent-editor-management-actions">
+      <button className="button-secondary" type="button" disabled={busy} onClick={runCheck}>重新检查</button>
+      {detail.isEnabled ? (
+        <button className="button-warning" type="button" disabled={busy} onClick={() => setDisableTarget(detail)}>停用</button>
+      ) : (
+        <button className="button" type="button" disabled={busy || detail.checkStatus !== "ready"} onClick={() => changeEnabled(detail, true)}>启用</button>
+      )}
+      <span
+        className="agent-delete-trigger"
+        tabIndex={(adminScope ? detail.assignmentCount > 0 : detail.assignmentCount > 1) ? 0 : undefined}
+        role={(adminScope ? detail.assignmentCount > 0 : detail.assignmentCount > 1) ? "group" : undefined}
+        aria-label={(adminScope ? detail.assignmentCount > 0 : detail.assignmentCount > 1) ? "删除不可用" : undefined}
+        aria-describedby={(adminScope ? detail.assignmentCount > 0 : detail.assignmentCount > 1) ? "agent-delete-hint" : undefined}
+        data-hint-dismissed={deleteHintDismissed}
+        onMouseEnter={() => setDeleteHintDismissed(false)}
+        onFocus={() => setDeleteHintDismissed(false)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setDeleteHintDismissed(true);
+        }}
+      >
+        <button
+          className="button-danger"
+          type="button"
+          disabled={busy || (adminScope ? detail.assignmentCount > 0 : detail.assignmentCount > 1)}
+          onClick={() => { void deleteSelectedAgent(detail); }}
+        >
+          {busy ? "处理中…" : "删除"}
+        </button>
+        {(adminScope ? detail.assignmentCount > 0 : detail.assignmentCount > 1) ? (
+          <span className="agent-delete-hint" id="agent-delete-hint" role="tooltip">
+            {adminScope
+              ? `仍分配给 ${detail.assignmentCount} 位用户，请先在“用户分配”中撤销。`
+              : "该智能体仍分配给其他用户，请先在“用户分配”中撤销。"}
+          </span>
+        ) : null}
+      </span>
+    </div>
+  ) : null;
 
   return (
     <div className="agent-admin">
@@ -889,7 +930,7 @@ export function AgentManagementPanel({
             </div>
           </section>
 
-          <section className="agent-editor panel" aria-label="智能体详情">
+          <section className="agent-editor panel" aria-label="智能体编辑器">
             {editorMode === "create" || detail ? (
               <>
                 <button className="agent-back-button" type="button" onClick={closeAgentDetail} aria-label="返回智能体目录">← 返回智能体目录</button>
@@ -898,7 +939,7 @@ export function AgentManagementPanel({
                     <div className="panel-title">{editorMode === "create" ? "新建智能体" : editorMode === "edit" ? `编辑 ${detail?.displayName ?? "智能体"}` : detail?.displayName}</div>
                     {detail ? <div className="muted mono" title={detail.contentHash ? `内容 hash：${detail.contentHash}` : undefined}>{detail.key}</div> : <div className="muted">{adminScope ? "配置基本信息、能力包与外部工具，保存检查通过后再分配给用户。" : "配置基本信息、能力包与外部工具，保存后系统会自动分配给你。"}</div>}
                   </div>
-                  {(adminScope || detail?.canManage) && detail && editorMode === "view" ? <button className="button" type="button" onClick={() => setEditorMode("edit")}>编辑智能体</button> : null}
+                  {agentActions}
                 </div>
 
                 {detail?.checkError ? <div className="agent-alert agent-alert-error"><strong>依赖检查失败</strong><span>{detail.checkError}</span></div> : null}
@@ -908,77 +949,16 @@ export function AgentManagementPanel({
                     <p>{detail.description}</p>
                     <dl className="agent-facts">
                       <div><dt>目录</dt><dd className="mono">data/agents/{detail.key}</dd></div>
-                      <div><dt>内容 hash</dt><dd className="mono" title={detail.contentHash ?? undefined}>{detail.contentHash ? shortHash(detail.contentHash) : "尚未检查"}</dd></div>
+                      <div><dt>内容 hash</dt><dd className="mono" title={detail.contentHash ?? undefined}>{detail.contentHash ? detail.contentHash.slice(0, 10) : "尚未检查"}</dd></div>
                       <div><dt>角色模式</dt><dd>{agentModeView(detail.mode).label}</dd></div>
                       <div><dt>检查时间</dt><dd>{detail.checkedAt ? new Date(detail.checkedAt).toLocaleString("zh-CN") : "尚未检查"}</dd></div>
                       <div><dt>源文件</dt><dd>{Object.keys(detail.files).length + Object.keys(detail.binaryFiles ?? {}).length} 个</dd></div>
                       <div><dt>Skill</dt><dd>{new Set(Object.keys({ ...detail.files, ...(detail.binaryFiles ?? {}) }).filter((name) => name.startsWith("skills/")).map((name) => name.split("/")[1])).size} 个</dd></div>
                       <div><dt>MCP</dt><dd>{detail.files["mcp.json"] ? "已配置" : "未配置"}</dd></div>
                     </dl>
-                    {adminScope ? (
-                      <div className="inline-actions">
-                        <button className="button-secondary" type="button" disabled={busy} onClick={runCheck}>重新检查</button>
-                        {detail.isEnabled ? (
-                          <button className="button-warning" type="button" disabled={busy} onClick={() => setDisableTarget(detail)}>停用</button>
-                        ) : (
-                          <button className="button" type="button" disabled={busy || detail.checkStatus !== "ready"} onClick={() => changeEnabled(detail, true)}>启用</button>
-                        )}
-                        <span
-                          className="agent-delete-trigger"
-                          tabIndex={detail.assignmentCount > 0 ? 0 : undefined}
-                          role={detail.assignmentCount > 0 ? "group" : undefined}
-                          aria-label={detail.assignmentCount > 0 ? "删除不可用" : undefined}
-                          aria-describedby={detail.assignmentCount > 0 ? "agent-delete-hint" : undefined}
-                          data-hint-dismissed={deleteHintDismissed}
-                          onMouseEnter={() => setDeleteHintDismissed(false)}
-                          onFocus={() => setDeleteHintDismissed(false)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") setDeleteHintDismissed(true);
-                          }}
-                        >
-                          <button
-                            className="button-danger"
-                            type="button"
-                            disabled={busy || detail.assignmentCount > 0}
-                            onClick={() => { void deleteSelectedAgent(detail); }}
-                          >
-                            {busy ? "处理中…" : "删除"}
-                          </button>
-                          {detail.assignmentCount > 0 ? (
-                            <span className="agent-delete-hint" id="agent-delete-hint" role="tooltip">
-                              仍分配给 {detail.assignmentCount} 位用户，请先在“用户分配”中撤销。
-                            </span>
-                          ) : null}
-                        </span>
-                      </div>
-                    ) : detail.canManage ? (
-                      <div className="inline-actions">
-                        <button className="button-secondary" type="button" disabled={busy} onClick={runCheck}>重新检查</button>
-                        {detail.isEnabled ? (
-                          <button className="button-warning" type="button" disabled={busy} onClick={() => setDisableTarget(detail)}>停用</button>
-                        ) : (
-                          <button className="button" type="button" disabled={busy || detail.checkStatus !== "ready"} onClick={() => changeEnabled(detail, true)}>启用</button>
-                        )}
-                        <span className="agent-delete-trigger">
-                          <button
-                            className="button-danger"
-                            type="button"
-                            disabled={busy || detail.assignmentCount > 1}
-                            onClick={() => { void deleteSelectedAgent(detail); }}
-                          >
-                            {busy ? "处理中…" : "删除"}
-                          </button>
-                          {detail.assignmentCount > 1 ? (
-                            <span className="agent-delete-hint" role="tooltip">
-                              该智能体仍分配给其他用户，请先在“用户分配”中撤销。
-                            </span>
-                          ) : null}
-                        </span>
-                      </div>
-                    ) : null}
                   </>
                 ) : (
-                  <div className="stack">
+                <div className="stack">
                     {editorMode === "create" ? (
                       <label className="field"><span className="field-label">目录 key</span><input className="field-input mono" value={agentKey} onChange={(event) => setAgentKey(event.target.value)} placeholder="network-ops" /></label>
                     ) : null}
@@ -1258,13 +1238,7 @@ export function AgentManagementPanel({
                           closeSkillRepository();
                           return;
                         }
-                        if (detail) {
-                          setFiles(detail.files);
-                          setBinaryFiles(detail.binaryFiles ?? {});
-                          setEditorMode("view");
-                        } else {
-                          closeAgentDetail();
-                        }
+                        closeAgentDetail();
                       }}>取消</button>
                     </div>
                   </>

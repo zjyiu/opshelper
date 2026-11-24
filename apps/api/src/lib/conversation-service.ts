@@ -714,7 +714,7 @@ export function conversationHomeWhere(userId: string): Prisma.ConversationWhereI
 }
 
 export async function listConversationHome(userId: string): Promise<ConversationsResponse> {
-  const [agents, conversations, queued, container] = await Promise.all([
+  const [agents, conversations, queued, container, user] = await Promise.all([
     assignedLeadAgents(userId),
     prisma.conversation.findMany({
       where: conversationHomeWhere(userId),
@@ -727,6 +727,10 @@ export async function listConversationHome(userId: string): Promise<Conversation
       orderBy: { queueSequence: "asc" },
     }),
     prisma.containerInstance.findUnique({ where: { userId } }),
+    prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { conversationAgentOrder: true },
+    }),
   ]);
   const positions = queuePositions(queued);
   return {
@@ -736,11 +740,32 @@ export async function listConversationHome(userId: string): Promise<Conversation
       description: agent.description,
       mode: agent.mode as AgentMode,
     })),
+    agentOrder: user.conversationAgentOrder,
     conversations: conversations.map((conversation) => conversationSummary(conversation, positions)),
     executionBlockedReason: container?.executionRecoveryRequired
       ? container.executionRecoveryReason ?? "运行环境需要人工恢复"
       : null,
   };
+}
+
+export async function saveConversationAgentOrder(userId: string, requestedOrder: string[]) {
+  const agents = await assignedLeadAgents(userId);
+  const availableKeys = agents.map(({ agent }) => agent.key);
+  const available = new Set(availableKeys);
+  const seen = new Set<string>();
+  const agentOrder = requestedOrder.filter((key) => {
+    if (!available.has(key) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  for (const key of availableKeys) {
+    if (!seen.has(key)) agentOrder.push(key);
+  }
+  await prisma.user.update({
+    where: { id: userId },
+    data: { conversationAgentOrder: agentOrder },
+  });
+  return agentOrder;
 }
 
 export async function listArchivedConversations(userId: string): Promise<ConversationSummary[]> {

@@ -25,7 +25,6 @@ export function Composer({
   onMention,
   blocked = false,
   readOnly = false,
-  queueHint = false,
   submitting = false,
   stopping = false,
   focusToken = 0,
@@ -49,7 +48,6 @@ export function Composer({
   onMention: (file: MentionFile) => void;
   blocked?: boolean;
   readOnly?: boolean;
-  queueHint?: boolean;
   submitting?: boolean;
   stopping?: boolean;
   // 每次递增都把焦点移到输入框末尾（首屏示例填入草稿后接着编辑）。
@@ -104,36 +102,15 @@ export function Composer({
     if (!el || !row) return;
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
-    const controlSelectors = [
-      ".opshelper-attach-menu-wrap",
-      ".opshelper-queue-hint",
-      ".opshelper-sending-hint",
-      ".opshelper-stop",
-      ".opshelper-model-pick",
-      ".opshelper-send:not(.opshelper-stop)",
-    ];
     const updateSize = () => {
       el.style.height = "auto";
       const height = el.scrollHeight;
       const textareaStyle = window.getComputedStyle(el);
       const rowStyle = window.getComputedStyle(row);
-      const controls = controlSelectors
-        .map((selector) => row.querySelector<HTMLElement>(selector))
-        .filter((control): control is HTMLElement => {
-          if (!control) return false;
-          const style = window.getComputedStyle(control);
-          return style.display !== "none" && style.position !== "absolute";
-        });
-      const controlsWidth = controls.reduce(
-        (total, control) => total + control.getBoundingClientRect().width,
-        0,
-      );
       const horizontalPadding =
         Number.parseFloat(rowStyle.paddingLeft) +
         Number.parseFloat(rowStyle.paddingRight);
-      const gap = Number.parseFloat(rowStyle.columnGap) || 0;
-      const inlineWidth =
-        row.clientWidth - horizontalPadding - controlsWidth - gap * controls.length;
+      const inlineWidth = row.clientWidth - horizontalPadding;
       if (context) {
         context.font = `${textareaStyle.fontStyle} ${textareaStyle.fontWeight} ${textareaStyle.fontSize} ${textareaStyle.fontFamily}`;
       }
@@ -150,7 +127,7 @@ export function Composer({
     const observer = new ResizeObserver(updateSize);
     observer.observe(row);
     return () => observer.disconnect();
-  }, [busy, expanded, model, models, queueHint, stopping, submitting, value]);
+  }, [expanded, value]);
 
   useEffect(() => {
     if (focusToken <= 0) return;
@@ -413,20 +390,7 @@ export function Composer({
             }}
           />
 
-          {queueHint ? <span className="opshelper-queue-hint">任务处理中，可继续输入下一条</span> : null}
           {submitting ? <span className="opshelper-sending-hint" role="status">发送中…</span> : null}
-
-          {busy ? (
-            <button
-              className="opshelper-send opshelper-stop"
-              onClick={onStop}
-              disabled={stopping}
-              aria-label={stopping ? "正在停止当前任务" : "停止当前任务"}
-            >
-              <IconStop />
-              <span>{stopping ? "停止中…" : "停止"}</span>
-            </button>
-          ) : null}
           {models.length > 0 ? (
             <label className="opshelper-model-pick" title="切换模型（对下一条消息生效）">
               <select
@@ -445,16 +409,29 @@ export function Composer({
               </select>
             </label>
           ) : null}
-          <button
-            className="opshelper-send"
-            type="button"
-            onClick={onSend}
-            disabled={!canSend || submitting}
-            aria-label={busy ? "将消息加入队列" : "发送"}
-            title={busy ? "将消息加入队列" : "发送"}
-          >
-            <IconSend />
-          </button>
+          {busy ? (
+            <button
+              className="opshelper-composer-stop"
+              type="button"
+              onClick={onStop}
+              disabled={stopping}
+              aria-label={stopping ? "正在停止当前任务" : "停止当前任务"}
+              title={stopping ? "正在停止当前任务" : "停止当前任务"}
+            >
+              <IconStop />
+            </button>
+          ) : (
+            <button
+              className="opshelper-send"
+              type="button"
+              onClick={onSend}
+              disabled={!canSend || submitting}
+              aria-label={busy ? "将消息加入队列" : "发送"}
+              title={busy ? "将消息加入队列" : "发送"}
+            >
+              <IconSend />
+            </button>
+          )}
         </div>
       </div>
       <div className="opshelper-composer-footer">

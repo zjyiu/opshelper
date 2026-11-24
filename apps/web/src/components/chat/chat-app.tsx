@@ -911,7 +911,6 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             busy={hasActiveExecution || stopping}
             blocked={blocked || sending || forkingMessageId !== null}
             readOnly={navigating || !draftsReady || conversationSurface === "loading"}
-            queueHint={hasActiveExecution}
             submitting={sending}
             stopping={stopping}
             models={availableModels}

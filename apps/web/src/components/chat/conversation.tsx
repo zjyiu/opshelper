@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import type { ConversationCollaboration, ExecutionSummary } from "@opshelper/shared";
 
 import { copyText as writeClipboardText } from "@/lib/clipboard";
-import { AgentMark, type Assistant } from "./assistant";
+import { type Assistant } from "./assistant";
 import { CollaborationBar } from "./collaboration-bar";
 import {
   describeOpencodeError,
@@ -346,8 +346,6 @@ export function Conversation({
             key={turn.key}
             turn={turn}
             agentKey={assistant.id}
-            agentName={assistant.name}
-            agentDescription={assistant.description}
             busy={busy && turn.key === latestReply?.key}
             messageRef={turn.key === latestReply?.key ? latestReplyRef : undefined}
             onInspectOperations={stopFollowingOutput}
@@ -368,7 +366,6 @@ export function Conversation({
       ) : null}
       {showActivity ? (
         <div className="opshelper-msg opshelper-msg-assistant opshelper-msg-progress" aria-live="polite">
-          <AgentMark id={assistant.id} name={assistant.name} description={assistant.description} />
           <div className="opshelper-assistant-body" role="status">
             <span>{activityLabel}</span>
             <TypingDots />
@@ -409,8 +406,6 @@ function ExecutionState({
 const AssistantTurn = memo(function AssistantTurn({
   turn,
   agentKey,
-  agentName,
-  agentDescription,
   busy,
   messageRef,
   onInspectOperations,
@@ -424,8 +419,6 @@ const AssistantTurn = memo(function AssistantTurn({
 }: {
   turn: ConversationTurn;
   agentKey: string;
-  agentName: string;
-  agentDescription: string;
   busy: boolean;
   messageRef?: RefObject<HTMLDivElement | null>;
   onInspectOperations?: () => void;
@@ -448,8 +441,6 @@ const AssistantTurn = memo(function AssistantTurn({
 
   return (
     <div ref={messageRef} className="opshelper-msg opshelper-msg-assistant">
-      {/* 角色标识留在正文之外：回答本身不再套卡片，识别只靠这一列图标。 */}
-      <AgentMark id={agentKey} name={agentName} description={agentDescription} />
       <div className="opshelper-assistant-body">
         {operations.length > 0 ? (
           <OperationDisclosure
