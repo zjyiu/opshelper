@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import {
   getFileIcon,
   IconArrowUp,
+  IconChevronDown,
+  IconCloudUpload,
   IconCopy,
   IconDownload,
   IconEdit,
@@ -13,12 +15,17 @@ import {
   IconFilePlus,
   IconFileUp,
   IconFolder,
+  IconFolderFilled,
   IconFolderPlus,
   IconFolderUp,
+  IconGridView,
+  IconListView,
   IconRefresh,
   IconScissors,
+  IconSparkles,
   IconTrash,
 } from "./file-icons";
+import { IconClose, IconSearch } from "./chat/icons";
 import { FileContextMenu, type FileContextMenuItem } from "./file-context-menu";
 import { FilePreviewModal, isPreviewable } from "./file-preview-modal";
 import { Skeleton } from "./ui/skeleton";
@@ -30,9 +37,7 @@ import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
 import { uploadStore } from "@/lib/upload-store";
 import { usePageRefresh } from "./navigation-refresh";
-import { useWorkspace } from "./workspace-shell";
 import {
-  categorizeUploadPath,
   collectDroppedFiles,
   expandedPathsStorageKey,
   fileDragMimeType,
@@ -52,7 +57,25 @@ import {
 } from "./file-manager/utils";
 
 type FileView = "all" | "uploads" | "outputs";
+type FileDisplayMode = "list" | "grid";
+type FileSortField = "name" | "modified" | "size";
+type FileSortDir = "asc" | "desc";
 type FileClipboard = { mode: "copy" | "cut"; items: FileInfo[] };
+
+const FILE_DISPLAY_MODE_KEY = "opshelper.fileDisplayMode";
+
+function compareFileRows(a: FileInfo, b: FileInfo, field: FileSortField, dir: FileSortDir) {
+  if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+  let cmp = 0;
+  if (field === "name") {
+    cmp = a.name.localeCompare(b.name, "zh-CN", { numeric: true });
+  } else if (field === "modified") {
+    cmp = (a.modified_at ?? 0) - (b.modified_at ?? 0);
+  } else if (field === "size") {
+    cmp = (a.size ?? 0) - (b.size ?? 0);
+  }
+  return dir === "asc" ? cmp : -cmp;
+}
 
 // chat-uploads 与 outputs 下均按智能体 key 建子目录，执行产物再按执行 ID 隔离。
 const scopedViewRoots: Partial<Record<FileView, { path: string; label: string }>> = {
@@ -88,10 +111,11 @@ export function FileManager({
   compact?: boolean;
   initialPath?: string;
 }) {
-  const { activeAgent } = useWorkspace();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const treeRef = useRef<HTMLDivElement>(null);
+  const uploadMenuRef = useRef<HTMLDivElement>(null);
+  const newMenuRef = useRef<HTMLDivElement>(null);
   const [currentPath, setCurrentPath] = useState(rootPath);
   const [entriesByPath, setEntriesByPath] = useState<Record<string, FileInfo[]>>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(readPersistedExpandedPaths);
@@ -109,10 +133,45 @@ export function FileManager({
     | null
   >(null);
   const [view, setView] = useState<FileView>("all");
+  const [displayMode, setDisplayMode] = useState<FileDisplayMode>("list");
+  const [sortField, setSortField] = useState<FileSortField>("name");
+  const [sortDir, setSortDir] = useState<FileSortDir>("asc");
   const [searchText, setSearchText] = useState("");
+  const [searchResults, setSearchResults] = useState<FileInfo[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchVersion, setSearchVersion] = useState(0);
+  const searchSequenceRef = useRef(0);
+  const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
   const [newMenuOpen, setNewMenuOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const requestedPath = useMemo(() => normalizedWorkspacePath(initialPath), [initialPath]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(FILE_DISPLAY_MODE_KEY);
+      if (saved === "grid" || saved === "list") setDisplayMode(saved);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  function changeDisplayMode(next: FileDisplayMode) {
+    setDisplayMode(next);
+    try {
+      window.localStorage.setItem(FILE_DISPLAY_MODE_KEY, next);
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  function toggleSort(field: FileSortField) {
+    if (sortField === field) {
+      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir(field === "name" ? "asc" : "desc");
+    }
+  }
 
   const scope = scopedViewRoots[view];
   const scopeRoot = scope?.path ?? rootPath;
@@ -147,23 +206,53 @@ export function FileManager({
     [entriesByPath, currentPath],
   );
 
-  const searchKeyword = searchText.trim().toLowerCase();
+  const searchKeyword = searchText.trim();
   const isFlatView = searchKeyword.length > 0;
-  const visibleRows = useMemo(() => {
-    if (!isFlatView) return treeRows;
-    const rows: FileTreeRow[] = [];
-    const seen = new Set<string>();
-    for (const list of Object.values(entriesByPath)) {
-      for (const file of list) {
-        if (seen.has(file.path)) continue;
-        seen.add(file.path);
-        if (scope && !file.path.startsWith(`${scope.path}/`)) continue;
-        if (searchKeyword && !file.name.toLowerCase().includes(searchKeyword)) continue;
-        rows.push({ file, level: 0 });
-      }
+
+  useEffect(() => {
+    if (!isFlatView) {
+      searchSequenceRef.current += 1;
+      setSearchResults(null);
+      setSearchLoading(false);
+      return;
     }
-    return rows.sort((a, b) => a.file.name.localeCompare(b.file.name));
-  }, [isFlatView, treeRows, entriesByPath, searchKeyword, scope]);
+    const sequence = ++searchSequenceRef.current;
+    setSearchLoading(true);
+    const timer = window.setTimeout(() => {
+      const url = `/v1/users/me/files/list?path=${encodeURIComponent(scopeRoot)}&q=${encodeURIComponent(searchKeyword)}${
+        showHidden ? "&showHidden=1" : ""
+      }`;
+      void fetch(url, { cache: "no-store" })
+        .then((response) => parseJson<{ files: FileInfo[] }>(response))
+        .then((payload) => {
+          if (sequence === searchSequenceRef.current) {
+            setSearchResults(payload.files);
+          }
+        })
+        .catch((error) => {
+          if (sequence === searchSequenceRef.current) {
+            setSearchResults([]);
+            toast.error(error instanceof Error ? error.message : "搜索文件失败");
+          }
+        })
+        .finally(() => {
+          if (sequence === searchSequenceRef.current) setSearchLoading(false);
+        });
+    }, 200);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isFlatView, scopeRoot, searchKeyword, searchVersion, showHidden]);
+
+  const visibleRows = useMemo(() => {
+    if (!isFlatView) {
+      return [...treeRows].sort((a, b) => compareFileRows(a.file, b.file, sortField, sortDir));
+    }
+    const source = searchResults ?? [];
+    return source
+      .map((file): FileTreeRow => ({ file, level: 0 }))
+      .sort((a, b) => compareFileRows(a.file, b.file, sortField, sortDir));
+  }, [isFlatView, treeRows, searchResults, sortField, sortDir]);
 
   const visibleFiles = useMemo(() => visibleRows.map((row) => row.file), [visibleRows]);
   const selectedFiles = useMemo(
@@ -175,8 +264,11 @@ export function FileManager({
     for (const entryList of Object.values(entriesByPath)) {
       for (const file of entryList) files.set(file.path, file);
     }
+    for (const file of searchResults ?? []) {
+      files.set(file.path, file);
+    }
     return files;
-  }, [entriesByPath]);
+  }, [entriesByPath, searchResults]);
   const directoryOptions = useMemo(() => {
     const directories = new Map<string, string>([[rootPath, rootLabel]]);
     for (const files of Object.values(entriesByPath)) {
@@ -319,6 +411,47 @@ export function FileManager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden]);
 
+  useEffect(() => {
+    if (!uploadMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!uploadMenuRef.current?.contains(event.target as Node)) setUploadMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setUploadMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [uploadMenuOpen]);
+
+  useEffect(() => {
+    if (!newMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!newMenuRef.current?.contains(event.target as Node)) setNewMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNewMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [newMenuOpen]);
+
+  useEffect(() => {
+    if (!moveItems) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isPending) setMoveItems(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isPending, moveItems]);
+
   function run(action: () => Promise<void>) {
     startTransition(async () => {
       try {
@@ -352,6 +485,7 @@ export function FileManager({
       if (files !== null) next[p] = files;
     }
     setEntriesByPath(next);
+    setSearchVersion((version) => version + 1);
   }
 
   function toggleDirectory(file: FileInfo) {
@@ -691,11 +825,7 @@ export function FileManager({
     doneText: string,
     refreshPath = currentPath,
   ) {
-    const categorizedFiles = files.map((item) => ({
-      ...item,
-      targetPath: categorizeUploadPath(item.targetPath, activeAgent?.key ?? "unassigned"),
-    }));
-    const items = categorizedFiles.map((item, index) => ({
+    const items = files.map((item, index) => ({
       id: `${Date.now()}-${index}-${item.filename}`,
       name: item.filename,
       progress: 0,
@@ -705,13 +835,13 @@ export function FileManager({
 
     let failedCount = 0;
     let cursor = 0;
-    const concurrency = Math.min(4, categorizedFiles.length);
+    const concurrency = Math.min(4, files.length);
 
     async function worker() {
       while (true) {
         const index = cursor++;
-        if (index >= categorizedFiles.length) return;
-        const item = categorizedFiles[index];
+        if (index >= files.length) return;
+        const item = files[index];
         const id = items[index].id;
         try {
           const result = await uploadFile(item.targetPath, item.file, item.filename, (progress) => {
@@ -739,7 +869,7 @@ export function FileManager({
     } else {
       toast.success(doneText);
     }
-    const uploadDirs = Array.from(new Set(categorizedFiles.map((f) => f.targetPath)));
+    const uploadDirs = Array.from(new Set(files.map((f) => f.targetPath)));
     await refreshTree(refreshPath, ...uploadDirs);
   }
 
@@ -917,406 +1047,448 @@ export function FileManager({
     });
   }
 
+  const showExternalDropOverlay = dragOverPath === currentPath && draggedPaths.length === 0;
+  const sortIndicator = (field: FileSortField) => (
+    sortField === field ? <span className="file-sort-arrow" aria-hidden="true">{sortDir === "asc" ? "↑" : "↓"}</span> : null
+  );
+
   return (
     <article className={compact ? "panel file-manager file-manager-compact" : "panel file-manager file-manager-with-sidebar"}>
       {!compact ? (
-        <nav className="file-sidebar" aria-label="文件分类">
-          {([
-            ["all", "全部文件"],
-            ["uploads", "对话上传文件"],
-            ["outputs", "生成文件"],
-          ] as Array<[FileView, string]>).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              className={view === key ? "is-active" : ""}
-              aria-current={view === key ? "page" : undefined}
-              onClick={() => switchView(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-      ) : null}
-      <div className="file-manager-main">
-      <div className="panel-header file-manager-header">
-        <div className="file-manager-pathbar">
-          <button
-            className="file-manager-up"
-            type="button"
-            disabled={!canGoUp || isPending}
-            onClick={() => run(() => load(parentPath(currentPath)))}
-            title="返回上一级目录"
-            aria-label="返回上一级目录"
-          >
-            <IconArrowUp />
-          </button>
-          <div className="file-manager-pathbar-text">
-            <nav
-              className="file-breadcrumb"
-              aria-label="目录路径"
-              title={getDisplayPath(currentPath)}
-            >
-              {pathSegments(currentPath)
-                .filter((segment) => isInsidePath(segment.path, scopeRoot))
-                .map((segment) => (segment.path === scopeRoot && scope ? { ...segment, label: scope.label } : segment))
-                .map((segment, idx, all) => {
-                const isLast = idx === all.length - 1;
-                const dropOver = dragOverPath === segment.path;
-                return (
-                  <span className="file-breadcrumb-item" key={segment.path}>
-                    {idx > 0 ? (
-                      <span className="file-breadcrumb-sep" aria-hidden="true">/</span>
-                    ) : null}
-                    <button
-                      type="button"
-                      className={`file-breadcrumb-segment${
-                        isLast ? " file-breadcrumb-segment-current" : ""
-                      }${dropOver ? " file-breadcrumb-segment-drop" : ""}`}
-                      aria-current={isLast ? "page" : undefined}
-                      disabled={isPending}
-                      onClick={() => {
-                        if (segment.path !== currentPath) {
-                          run(() => load(segment.path));
-                        }
-                      }}
-                      onDragOver={(event) => handleDragOver(event, segment.path)}
-                      onDragLeave={(event) => handleDragLeave(event, segment.path)}
-                      onDrop={(event) => handleDrop(event, segment.path)}
-                      onContextMenu={(event) => openBlankContextMenu(event, segment.path)}
-                      title={getDisplayPath(segment.path)}
-                    >
-                      {segment.label}
-                    </button>
-                  </span>
-                );
-              })}
-            </nav>
+        <aside className="file-sidebar" aria-label="文件分类">
+          <div className="file-sidebar-group-label">我的空间</div>
+          <nav className="file-sidebar-nav">
+            {([
+              ["all", "全部文件", <IconFolderFilled key="all" />],
+              ["uploads", "对话上传文件", <IconCloudUpload key="uploads" />],
+              ["outputs", "生成文件", <IconSparkles key="outputs" />],
+            ] as Array<[FileView, string, React.ReactNode]>).map(([key, label, icon]) => (
+              <button
+                key={key}
+                type="button"
+                className={`file-sidebar-item${view === key ? " is-active" : ""}`}
+                aria-current={view === key ? "page" : undefined}
+                onClick={() => switchView(key)}
+              >
+                <span className="file-sidebar-icon" aria-hidden="true">{icon}</span>
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="file-sidebar-foot">
+            <div className="file-sidebar-foot-title">工作区挂载</div>
+            <p>文件实时同步至容器 <code>/workspace</code>，支持拖拽上传与拖拽整理。</p>
           </div>
-        </div>
-        <div className="inline-actions file-manager-toolbar">
-          {fileClipboard ? (
-            <button
-              className="button-secondary file-manager-action"
-              type="button"
-              disabled={isPending || !canPasteTo(currentPath)}
-              onClick={() => run(() => pasteItems(currentPath))}
-              title={`粘贴 ${fileClipboard.items.length} 项到当前目录`}
-            >
-              粘贴 {fileClipboard.items.length} 项
-            </button>
-          ) : null}
-          <button
-            className="button file-manager-action"
-            type="button"
-            disabled={isPending}
-            onClick={() => fileInputRef.current?.click()}
-            title="上传文件"
-          >
-            <IconFileUp />
-            <span>上传文件</span>
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            hidden
-            multiple
-            onChange={(event) => {
-              const selected = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              if (selected.length === 0) return;
-              run(() =>
-                uploadFiles(
-                  selected.map((file) => ({ file, targetPath: currentPath, filename: file.name })),
-                  "文件已上传",
-                ),
-              );
-            }}
-          />
-          <div className="file-new-menu">
-            <button
-              className="button-secondary file-manager-action"
-              type="button"
-              disabled={isPending}
-              aria-haspopup="menu"
-              aria-expanded={newMenuOpen}
-              onClick={() => setNewMenuOpen((value) => !value)}
-              onBlur={(event) => {
-                if (!event.currentTarget.parentElement?.contains(event.relatedTarget as Node | null)) {
+        </aside>
+      ) : null}
+
+      <div className="file-manager-main">
+        {/* 主操作栏：左侧上传与新建，右侧搜索、视图切换与辅助工具 */}
+        <div className="file-cloud-toolbar">
+          <div className="inline-actions file-manager-toolbar">
+            <div className="file-new-menu" ref={uploadMenuRef}>
+              <button
+                className="button file-manager-action"
+                type="button"
+                disabled={isPending}
+                aria-haspopup="menu"
+                aria-expanded={uploadMenuOpen}
+                onClick={() => {
                   setNewMenuOpen(false);
-                }
+                  setUploadMenuOpen((value) => !value);
+                }}
+                title="上传文件或文件夹"
+              >
+                <IconCloudUpload />
+                <span>上传</span>
+                <IconChevronDown />
+              </button>
+              {uploadMenuOpen ? (
+                <div className="file-new-menu-list" role="menu">
+                  <button type="button" role="menuitem" onClick={() => { setUploadMenuOpen(false); fileInputRef.current?.click(); }}>
+                    <IconFileUp /> 上传文件
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => { setUploadMenuOpen(false); folderInputRef.current?.click(); }}>
+                    <IconFolderUp /> 上传文件夹
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              hidden
+              multiple
+              onChange={(event) => {
+                const selected = Array.from(event.target.files ?? []);
+                event.target.value = "";
+                if (selected.length === 0) return;
+                run(() =>
+                  uploadFiles(
+                    selected.map((file) => ({ file, targetPath: currentPath, filename: file.name })),
+                    "文件已上传",
+                  ),
+                );
               }}
-              title="新建"
-            >
-              <span aria-hidden="true">+</span>
-              <span>新建</span>
-            </button>
-            {newMenuOpen ? (
-              <div className="file-new-menu-list" role="menu">
-                <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); void handleCreateFile(currentPath); }}>
-                  <IconFilePlus /> 新建文件
+            />
+            <div className="file-new-menu" ref={newMenuRef}>
+              <button
+                className="button-secondary file-manager-action"
+                type="button"
+                disabled={isPending}
+                aria-haspopup="menu"
+                aria-expanded={newMenuOpen}
+                onClick={() => {
+                  setUploadMenuOpen(false);
+                  setNewMenuOpen((value) => !value);
+                }}
+                title="新建"
+              >
+                <span aria-hidden="true">+</span>
+                <span>新建</span>
+                <IconChevronDown />
+              </button>
+              {newMenuOpen ? (
+                <div className="file-new-menu-list" role="menu">
+                  <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); void handleCreateFolder(currentPath); }}>
+                    <IconFolderPlus /> 新建文件夹
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); void handleCreateFile(currentPath); }}>
+                    <IconFilePlus /> 新建文件
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <input
+              ref={folderInputRef}
+              type="file"
+              hidden
+              multiple
+              {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+              onChange={(event) => {
+                const selected = Array.from(event.target.files ?? []);
+                event.target.value = "";
+                if (selected.length === 0) return;
+                run(() =>
+                  uploadFiles(
+                    selected.map((file) => {
+                      const relativePath = file.webkitRelativePath || file.name;
+                      const parts = relativePath.split("/").filter(Boolean);
+                      const filename = parts.pop() ?? file.name;
+                      const relativeDir = parts.join("/");
+                      return {
+                        file,
+                        filename,
+                        targetPath: relativeDir ? `${currentPath.replace(/\/+$/, "")}/${relativeDir}` : currentPath,
+                      };
+                    }),
+                    "文件夹已上传",
+                  ),
+                );
+              }}
+            />
+            {fileClipboard ? (
+              <button
+                className="button-secondary file-manager-action file-paste-btn"
+                type="button"
+                disabled={isPending || !canPasteTo(currentPath)}
+                onClick={() => run(() => pasteItems(currentPath))}
+                title={`粘贴 ${fileClipboard.items.length} 项到当前目录`}
+              >
+                粘贴 {fileClipboard.items.length} 项
+              </button>
+            ) : null}
+          </div>
+
+          <div className="file-cloud-toolbar-right">
+            {!compact ? (
+              <div className="file-search-wrap">
+                <IconSearch />
+                <input
+                  className="field-input file-search-input"
+                  type="search"
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && searchText) {
+                      event.preventDefault();
+                      setSearchText("");
+                    }
+                  }}
+                  placeholder="搜索全部文件与文件夹..."
+                  aria-label="搜索文件"
+                />
+                {searchText ? (
+                  <button
+                    type="button"
+                    className="file-search-clear"
+                    aria-label="清除搜索"
+                    title="清除搜索"
+                    onClick={() => setSearchText("")}
+                  >
+                    <IconClose />
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {!compact ? (
+              <div className="file-view-switch" role="group" aria-label="切换视图">
+                <button
+                  type="button"
+                  className={displayMode === "list" ? "is-active" : ""}
+                  aria-pressed={displayMode === "list"}
+                  title="列表视图"
+                  aria-label="列表视图"
+                  onClick={() => changeDisplayMode("list")}
+                >
+                  <IconListView />
                 </button>
-                <button type="button" role="menuitem" onClick={() => { setNewMenuOpen(false); void handleCreateFolder(currentPath); }}>
-                  <IconFolderPlus /> 新建文件夹
+                <button
+                  type="button"
+                  className={displayMode === "grid" ? "is-active" : ""}
+                  aria-pressed={displayMode === "grid"}
+                  title="网格视图"
+                  aria-label="网格视图"
+                  onClick={() => changeDisplayMode("grid")}
+                >
+                  <IconGridView />
                 </button>
               </div>
             ) : null}
+            <button
+              className={`file-icon-button${showHidden ? " is-active" : ""}`}
+              type="button"
+              disabled={isPending}
+              onClick={() => setShowHidden((value) => !value)}
+              title={showHidden ? "隐藏以 . 开头的文件" : "显示以 . 开头的隐藏文件"}
+              aria-label={showHidden ? "隐藏隐藏文件" : "显示隐藏文件"}
+              aria-pressed={showHidden}
+            >
+              <IconEye />
+            </button>
+            <button
+              className="file-icon-button"
+              type="button"
+              disabled={isPending}
+              onClick={() => run(() => refreshTree(currentPath))}
+              title="刷新"
+              aria-label="刷新文件列表"
+            >
+              <IconRefresh />
+            </button>
           </div>
-          <button
-            className="button-secondary file-manager-action"
-            type="button"
-            disabled={isPending}
-            onClick={() => folderInputRef.current?.click()}
-            title="上传文件夹"
-          >
-            <IconFolderUp />
-            <span>上传文件夹</span>
-          </button>
-          <input
-            ref={folderInputRef}
-            type="file"
-            hidden
-            multiple
-            {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-            onChange={(event) => {
-              const selected = Array.from(event.target.files ?? []);
-              event.target.value = "";
-              if (selected.length === 0) return;
-              run(() =>
-                uploadFiles(
-                  selected.map((file) => {
-                    const relativePath = file.webkitRelativePath || file.name;
-                    const parts = relativePath.split("/").filter(Boolean);
-                    const filename = parts.pop() ?? file.name;
-                    const relativeDir = parts.join("/");
-                    return {
-                      file,
-                      filename,
-                      targetPath: relativeDir ? `${currentPath.replace(/\/+$/, "")}/${relativeDir}` : currentPath,
-                    };
-                  }),
-                  "文件夹已上传",
-                ),
-              );
-            }}
-          />
-          <button
-            className={`button-secondary file-manager-action file-manager-hidden${
-              showHidden ? " is-active" : ""
-            }`}
-            type="button"
-            disabled={isPending}
-            onClick={() => setShowHidden((value) => !value)}
-            title={showHidden ? "隐藏以 . 开头的文件" : "显示以 . 开头的隐藏文件"}
-            aria-pressed={showHidden}
-          >
-            <IconEye />
-            <span>隐藏文件</span>
-          </button>
-          <button
-            className="file-icon-button"
-            type="button"
-            disabled={isPending}
-            onClick={() => run(() => refreshTree(currentPath))}
-            title="刷新"
-            aria-label="刷新文件列表"
-          >
-            <IconRefresh />
-          </button>
         </div>
-      </div>
 
-      {!compact ? (
-        <div className="file-view-bar">
-          <input
-            className="field-input file-search-input"
-            type="search"
-            value={searchText}
-            onChange={(event) => setSearchText(event.target.value)}
-            placeholder="搜索已加载的文件名"
-            aria-label="搜索文件"
-          />
-        </div>
-      ) : null}
-
-      <div
-        ref={treeRef}
-        className={`file-tree${dragOverPath === currentPath ? " file-tree-drop-target" : ""}${selectedPaths.size > 0 ? " file-tree-selecting" : ""}`}
-        role="tree"
-        aria-label="工作区文件树"
-        tabIndex={0}
-        onKeyDown={handleTreeKeyDown}
-        onDragOver={(event) => handleDragOver(event, currentPath, { allowMove: false })}
-        onDragLeave={(event) => handleDragLeave(event, currentPath)}
-        onDrop={(event) => handleDrop(event, currentPath, { allowMove: false })}
-        onContextMenu={(event) => {
-          if (event.target === event.currentTarget) {
-            openBlankContextMenu(event, currentPath);
-          }
-        }}
-      >
-        {!rootLoaded ? (
-          <div className="skeleton-list" role="status" aria-label="正在加载文件">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} height={28} width={`${65 + ((i * 13) % 30)}%`} />
-            ))}
-          </div>
-        ) : visibleRows.length === 0 ? (
-          <div className="file-empty">
-            <span className="file-empty-icon" aria-hidden="true"><IconFolder /></span>
-            <strong>{isFlatView ? "没有匹配的文件" : "这个文件夹是空的"}</strong>
-            <span>{isFlatView ? "换个关键词试试。" : "把本机文件拖到这里，或点右上角「上传文件」。"}</span>
-          </div>
-        ) : (
-          <>
-            <div className="file-tree-row file-tree-row-head">
-              {!compact ? (
-                <>
-                  <label className="file-check">
-                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="选择全部可见文件" />
-                  </label>
-                  {selectedFiles.length > 0 ? (
-                    <div className="file-head-bulk">
-                      <strong>已选 {selectedFiles.length} 项</strong>
-                      <button type="button" disabled={isPending} onClick={() => copyOrCutItems(selectedFiles, "copy")}>复制</button>
-                      <button type="button" disabled={isPending} onClick={() => copyOrCutItems(selectedFiles, "cut")}>剪切</button>
-                      <button type="button" disabled={isPending} onClick={() => setMoveItems(selectedFiles)}>移动</button>
-                      <button type="button" disabled={isPending} onClick={() => downloadItems(selectedFiles)}>下载</button>
-                      <button type="button" className="is-danger" disabled={isPending} onClick={() => void confirmBulkDelete(selectedFiles)}>删除</button>
-                      <button type="button" onClick={() => setSelectedPaths(new Set())}>取消选择</button>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="file-tree-head-label">名称</span>
-                      <span className="file-tree-head-count">{visibleRows.length} 项</span>
-                    </>
-                  )}
-                </>
-              ) : null}
+        {/* 面包屑路径栏 */}
+        <div className="file-cloud-subbar">
+          <div className="file-manager-pathbar">
+            <button
+              className="file-manager-up"
+              type="button"
+              disabled={!canGoUp || isPending}
+              onClick={() => run(() => load(parentPath(currentPath)))}
+              title="返回上一级目录"
+              aria-label="返回上一级目录"
+            >
+              <IconArrowUp />
+            </button>
+            <div className="file-manager-pathbar-text">
+              <nav
+                className="file-breadcrumb"
+                aria-label="目录路径"
+                title={getDisplayPath(currentPath)}
+              >
+                {pathSegments(currentPath)
+                  .filter((segment) => isInsidePath(segment.path, scopeRoot))
+                  .map((segment) => (segment.path === scopeRoot && scope ? { ...segment, label: scope.label } : segment))
+                  .map((segment, idx, all) => {
+                  const isLast = idx === all.length - 1;
+                  const dropOver = dragOverPath === segment.path;
+                  return (
+                    <span className="file-breadcrumb-item" key={segment.path}>
+                      {idx > 0 ? (
+                        <span className="file-breadcrumb-sep" aria-hidden="true">›</span>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={`file-breadcrumb-segment${
+                          isLast ? " file-breadcrumb-segment-current" : ""
+                        }${dropOver ? " file-breadcrumb-segment-drop" : ""}`}
+                        aria-current={isLast ? "page" : undefined}
+                        disabled={isPending}
+                        onClick={() => {
+                          if (segment.path !== currentPath) {
+                            run(() => load(segment.path));
+                          }
+                        }}
+                        onDragOver={(event) => handleDragOver(event, segment.path)}
+                        onDragLeave={(event) => handleDragLeave(event, segment.path)}
+                        onDrop={(event) => handleDrop(event, segment.path)}
+                        onContextMenu={(event) => openBlankContextMenu(event, segment.path)}
+                        title={getDisplayPath(segment.path)}
+                      >
+                        {segment.label}
+                      </button>
+                    </span>
+                  );
+                })}
+              </nav>
             </div>
-            {visibleRows.map(({ file, level }) => {
-              const isDirectory = file.type === "directory";
-              const isSelected = focusedPath === file.path;
-              const isChecked = selectedPaths.has(file.path);
+          </div>
 
-              return (
-                <div
-                  className={`file-tree-row${isSelected ? " file-tree-row-selected" : ""}${isChecked ? " file-tree-row-checked" : ""}${fileClipboard?.mode === "cut" && fileClipboard.items.some((item) => item.path === file.path) ? " file-tree-row-cut" : ""}${dragOverPath === file.path ? " file-tree-row-drop-target" : ""}`}
-                  key={file.path}
-                  data-file-path={file.path}
-                  role="treeitem"
-                  draggable
-                  onDragStart={(event) => startFileDrag(event, file)}
-                  onDragEnd={() => {
-                    setDraggedPaths([]);
-                    setDragOverPath(null);
-                  }}
-                  onDragOver={isDirectory ? (event) => handleDragOver(event, file.path) : undefined}
-                  onDragLeave={isDirectory ? (event) => handleDragLeave(event, file.path) : undefined}
-                  onDrop={isDirectory ? (event) => handleDrop(event, file.path) : undefined}
-                  onDoubleClick={() => {
-                    setFocusedPath(file.path);
-                    if (isDirectory) {
-                      toggleDirectory(file);
-                      return;
-                    }
-                    // 双击始终「打开」：可预览类型直接展示，不可预览类型在弹窗内
-                    // 给出明确的下载入口，避免静默下载这种不可预测的行为。
-                    setPreviewItem(file);
-                  }}
-                  onContextMenu={(event) => openRowContextMenu(event, file)}
-                  style={{ "--file-level": level } as CSSProperties & Record<"--file-level", number>}
-                >
-                  {!compact ? (
-                    <label className="file-check">
-                      <input type="checkbox" checked={isChecked} onChange={() => toggleSelected(file.path)} aria-label={`选择 ${file.name}`} />
+          <div className="file-cloud-subbar-meta">
+            {!compact && displayMode === "grid" ? (
+              <select
+                className="file-sort-select"
+                aria-label="排序方式"
+                value={`${sortField}:${sortDir}`}
+                onChange={(event) => {
+                  const [nextField, nextDir] = event.target.value.split(":") as [FileSortField, FileSortDir];
+                  setSortField(nextField);
+                  setSortDir(nextDir);
+                }}
+              >
+                <option value="name:asc">按名称 A-Z</option>
+                <option value="name:desc">按名称 Z-A</option>
+                <option value="modified:desc">按修改时间（最新）</option>
+                <option value="modified:asc">按修改时间（最早）</option>
+                <option value="size:desc">按大小（从大到小）</option>
+                <option value="size:asc">按大小（从小到大）</option>
+              </select>
+            ) : null}
+            <span className="file-count-pill">
+              {isFlatView ? (searchLoading ? "搜索中…" : `匹配 ${visibleRows.length} 项`) : `共 ${visibleRows.length} 项`}
+            </span>
+          </div>
+        </div>
+
+        {/* 批量操作条（网格视图或勾选多项时清晰展示） */}
+        {!compact && selectedFiles.length > 0 ? (
+          <div className="file-bulk-banner" role="region" aria-label="批量操作">
+            <label className="file-check">
+              <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="选择全部可见文件" />
+            </label>
+            <strong className="file-bulk-count">已选 {selectedFiles.length} 项</strong>
+            <div className="file-bulk-actions">
+              <button type="button" disabled={isPending} onClick={() => downloadItems(selectedFiles)}>
+                <IconDownload /> 下载
+              </button>
+              <button type="button" disabled={isPending} onClick={() => copyOrCutItems(selectedFiles, "copy")}>
+                <IconCopy /> 复制
+              </button>
+              <button type="button" disabled={isPending} onClick={() => copyOrCutItems(selectedFiles, "cut")}>
+                <IconScissors /> 剪切
+              </button>
+              <button type="button" disabled={isPending} onClick={() => setMoveItems(selectedFiles)}>
+                <IconFolder /> 移动
+              </button>
+              <button type="button" className="is-danger" disabled={isPending} onClick={() => void confirmBulkDelete(selectedFiles)}>
+                <IconTrash /> 删除
+              </button>
+            </div>
+            <button type="button" className="file-bulk-cancel" onClick={() => setSelectedPaths(new Set())}>
+              取消选择
+            </button>
+          </div>
+        ) : null}
+
+        <div
+          ref={treeRef}
+          className={`file-tree${displayMode === "grid" && !compact ? " file-tree-grid-mode" : ""}${dragOverPath === currentPath ? " file-tree-drop-target" : ""}${selectedPaths.size > 0 ? " file-tree-selecting" : ""}`}
+          role="tree"
+          aria-label="工作区文件树"
+          tabIndex={0}
+          onKeyDown={handleTreeKeyDown}
+          onDragOver={(event) => handleDragOver(event, currentPath, { allowMove: false })}
+          onDragLeave={(event) => handleDragLeave(event, currentPath)}
+          onDrop={(event) => handleDrop(event, currentPath, { allowMove: false })}
+          onContextMenu={(event) => {
+            if (event.target === event.currentTarget) {
+              openBlankContextMenu(event, currentPath);
+            }
+          }}
+        >
+          {showExternalDropOverlay ? (
+            <div className="file-drop-overlay" aria-hidden="true">
+              <div className="file-drop-overlay-card">
+                <IconCloudUpload />
+                <strong>松开即可上传到「{getDisplayPath(currentPath)}」</strong>
+                <span>支持同时拖拽多个文件或整个文件夹</span>
+              </div>
+            </div>
+          ) : null}
+
+          {!rootLoaded || (isFlatView && searchLoading && searchResults === null) ? (
+            <div className="skeleton-list" role="status" aria-label={isFlatView ? "正在搜索文件" : "正在加载文件"}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} height={36} width={`${65 + ((i * 13) % 30)}%`} />
+              ))}
+            </div>
+          ) : visibleRows.length === 0 ? (
+            <div className="file-empty">
+              <span className="file-empty-icon" aria-hidden="true"><IconFolderFilled /></span>
+              <strong>{isFlatView ? "没有匹配的文件" : "这个文件夹是空的"}</strong>
+              <span>{isFlatView ? "换个关键词试试，或清空搜索查看全部内容。" : "把本机文件或文件夹拖到这里，或点击左上角「上传文件」。"}</span>
+              {!isFlatView ? (
+                <div className="file-empty-actions">
+                  <button type="button" className="button" onClick={() => fileInputRef.current?.click()}>
+                    <IconFileUp /> 上传文件
+                  </button>
+                  <button type="button" className="button-secondary" onClick={() => void handleCreateFolder(currentPath)}>
+                    <IconFolderPlus /> 新建文件夹
+                  </button>
+                </div>
+              ) : (
+                <button type="button" className="button-secondary" onClick={() => setSearchText("")}>
+                  清除搜索
+                </button>
+              )}
+            </div>
+          ) : !compact && displayMode === "grid" ? (
+            <div className="file-grid">
+              {visibleRows.map(({ file }) => {
+                const isDirectory = file.type === "directory";
+                const isSelected = focusedPath === file.path;
+                const isChecked = selectedPaths.has(file.path);
+                const isCut = fileClipboard?.mode === "cut" && fileClipboard.items.some((item) => item.path === file.path);
+
+                return (
+                  <div
+                    key={file.path}
+                    data-file-path={file.path}
+                    role="treeitem"
+                    draggable
+                    className={`file-grid-card${isSelected ? " is-selected" : ""}${isChecked ? " is-checked" : ""}${isCut ? " is-cut" : ""}${dragOverPath === file.path ? " is-drop-target" : ""}`}
+                    onDragStart={(event) => startFileDrag(event, file)}
+                    onDragEnd={() => {
+                      setDraggedPaths([]);
+                      setDragOverPath(null);
+                    }}
+                    onDragOver={isDirectory ? (event) => handleDragOver(event, file.path) : undefined}
+                    onDragLeave={isDirectory ? (event) => handleDragLeave(event, file.path) : undefined}
+                    onDrop={isDirectory ? (event) => handleDrop(event, file.path) : undefined}
+                    onClick={() => setFocusedPath(file.path)}
+                    onDoubleClick={() => {
+                      setFocusedPath(file.path);
+                      if (isDirectory) toggleDirectory(file);
+                      else setPreviewItem(file);
+                    }}
+                    onContextMenu={(event) => openRowContextMenu(event, file)}
+                  >
+                    <label
+                      className="file-grid-check"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleSelected(file.path)}
+                        aria-label={`选择 ${file.name}`}
+                      />
                     </label>
-                  ) : null}
-                  <div className="file-tree-main">
-                    <button
-                      className="file-name file-tree-name"
-                      type="button"
-                      disabled={isPending}
-                      onClick={(event) => {
-                        const target = event.target as HTMLElement;
-                        void target;
-                        if (isDirectory) {
-                          toggleDirectory(file);
-                          return;
-                        }
-                        setFocusedPath(file.path);
-                      }}
-                      title={isDirectory ? `打开 ${file.name}` : `双击打开 ${file.name}`}
-                    >
-                      <span className={`file-icon${isDirectory ? " file-icon-folder" : ""}`} aria-hidden="true">
-                        {isDirectory ? <IconFolder /> : getFileIcon(file.name)}
-                      </span>
-                      <span className="file-name-text">{file.name}</span>
-                    </button>
-                    {!compact ? (
-                      <span className="file-tree-meta">
-                        <span className="file-tree-type">{isDirectory ? "文件夹" : formatSize(file.size)}</span>
-                        {isFlatView ? <span className="file-tree-date">{getDisplayPath(parentPath(file.path))}</span> : null}
-                        <span className="file-tree-sep" aria-hidden="true">·</span>
-                        <span className="file-tree-date">{formatDate(file.modified_at)}</span>
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="file-row-actions">
-                    {!isDirectory ? (
-                      isPreviewable(file.name) ? (
-                        <button
-                          type="button"
-                          className="file-row-quick-action"
-                          draggable={false}
-                          title={`预览 ${file.name}`}
-                          aria-label={`预览 ${file.name}`}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            setFocusedPath(file.path);
-                            setPreviewItem(file);
-                          }}
-                        >
-                          <IconEye />
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="file-row-quick-action"
-                          draggable={false}
-                          title={`下载 ${file.name}`}
-                          aria-label={`下载 ${file.name}`}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            window.location.href = `${downloadBase}${encodeURIComponent(file.path)}`;
-                          }}
-                        >
-                          <IconDownload />
-                        </button>
-                      )
-                    ) : null}
                     <button
                       type="button"
-                      className="file-row-quick-action"
-                      draggable={false}
-                      title="复制相对路径"
-                      aria-label={`复制 ${file.name} 的相对路径`}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        void copyDisplayPath(file);
-                      }}
-                    >
-                      <IconCopy />
-                    </button>
-                    <button
-                      type="button"
-                      className="file-row-quick-action"
+                      className="file-grid-more"
                       draggable={false}
                       title="更多操作"
                       aria-label={`${file.name} 的更多操作`}
@@ -1331,45 +1503,202 @@ export function FileManager({
                     >
                       ⋯
                     </button>
+                    <button
+                      type="button"
+                      className="file-grid-body"
+                      disabled={isPending}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (isDirectory) toggleDirectory(file);
+                        else setFocusedPath(file.path);
+                      }}
+                      title={isDirectory ? `打开 ${file.name}` : `双击打开 ${file.name}`}
+                    >
+                      <span className="file-grid-icon" aria-hidden="true">
+                        {isDirectory ? <IconFolderFilled /> : getFileIcon(file.name)}
+                      </span>
+                      <span className="file-grid-name">{file.name}</span>
+                      <span className="file-grid-meta">
+                        {isDirectory ? "文件夹" : formatSize(file.size)}
+                        {file.modified_at ? ` · ${formatDate(file.modified_at).slice(5, 10)}` : ""}
+                      </span>
+                    </button>
                   </div>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              {!compact ? (
+                <div className="file-cloud-table-head">
+                  <label className="file-check">
+                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleAllVisible} aria-label="选择全部可见文件" />
+                  </label>
+                  <button type="button" className={`file-col-sort${sortField === "name" ? " is-active" : ""}`} onClick={() => toggleSort("name")}>
+                    名称 {sortIndicator("name")}
+                  </button>
+                  <button type="button" className={`file-col-sort file-col-modified${sortField === "modified" ? " is-active" : ""}`} onClick={() => toggleSort("modified")}>
+                    修改时间 {sortIndicator("modified")}
+                  </button>
+                  <button type="button" className={`file-col-sort file-col-size${sortField === "size" ? " is-active" : ""}`} onClick={() => toggleSort("size")}>
+                    大小 {sortIndicator("size")}
+                  </button>
+                  <span className="file-col-actions-head">操作</span>
                 </div>
-              );
-            })}
-          </>
-        )}
-      </div>
+              ) : null}
+              {visibleRows.map(({ file, level }) => {
+                const isDirectory = file.type === "directory";
+                const isSelected = focusedPath === file.path;
+                const isChecked = selectedPaths.has(file.path);
 
-      <div className="file-manager-footer">
-        <div className="note">
-          这里的文件会挂载到小信运维助手容器内。可以拖拽本机文件或文件夹到目标目录，也可以拖动列表内项目整理目录。
+                return (
+                  <div
+                    className={`file-tree-row file-cloud-row${isSelected ? " file-tree-row-selected" : ""}${isChecked ? " file-tree-row-checked" : ""}${fileClipboard?.mode === "cut" && fileClipboard.items.some((item) => item.path === file.path) ? " file-tree-row-cut" : ""}${dragOverPath === file.path ? " file-tree-row-drop-target" : ""}`}
+                    key={file.path}
+                    data-file-path={file.path}
+                    role="treeitem"
+                    draggable
+                    onDragStart={(event) => startFileDrag(event, file)}
+                    onDragEnd={() => {
+                      setDraggedPaths([]);
+                      setDragOverPath(null);
+                    }}
+                    onDragOver={isDirectory ? (event) => handleDragOver(event, file.path) : undefined}
+                    onDragLeave={isDirectory ? (event) => handleDragLeave(event, file.path) : undefined}
+                    onDrop={isDirectory ? (event) => handleDrop(event, file.path) : undefined}
+                    onDoubleClick={() => {
+                      setFocusedPath(file.path);
+                      if (isDirectory) {
+                        toggleDirectory(file);
+                        return;
+                      }
+                      setPreviewItem(file);
+                    }}
+                    onContextMenu={(event) => openRowContextMenu(event, file)}
+                    style={{ "--file-level": level } as CSSProperties & Record<"--file-level", number>}
+                  >
+                    {!compact ? (
+                      <label className="file-check">
+                        <input type="checkbox" checked={isChecked} onChange={() => toggleSelected(file.path)} aria-label={`选择 ${file.name}`} />
+                      </label>
+                    ) : null}
+                    <div className="file-cloud-name-cell">
+                      <button
+                        className="file-name file-tree-name"
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => {
+                          if (isDirectory) {
+                            toggleDirectory(file);
+                            return;
+                          }
+                          setFocusedPath(file.path);
+                        }}
+                        title={isDirectory ? `打开 ${file.name}` : `双击打开 ${file.name}`}
+                      >
+                        <span className={`file-icon file-cloud-icon${isDirectory ? " file-icon-folder" : ""}`} aria-hidden="true">
+                          {isDirectory ? <IconFolderFilled /> : getFileIcon(file.name)}
+                        </span>
+                        <span className="file-name-wrap">
+                          <span className="file-name-text">{file.name}</span>
+                          {isFlatView ? (
+                            <span className="file-name-subpath">{getDisplayPath(parentPath(file.path))}</span>
+                          ) : null}
+                        </span>
+                      </button>
+                    </div>
+                    {!compact ? (
+                      <>
+                        <span className="file-cloud-modified">{formatDate(file.modified_at)}</span>
+                        <span className="file-cloud-size">{isDirectory ? "—" : formatSize(file.size)}</span>
+                      </>
+                    ) : null}
+                    <div className="file-row-actions">
+                      {!isDirectory ? (
+                        isPreviewable(file.name) ? (
+                          <button
+                            type="button"
+                            className="file-row-quick-action"
+                            draggable={false}
+                            title={`预览 ${file.name}`}
+                            aria-label={`预览 ${file.name}`}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setFocusedPath(file.path);
+                              setPreviewItem(file);
+                            }}
+                          >
+                            <IconEye />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="file-row-quick-action"
+                            draggable={false}
+                            title={`下载 ${file.name}`}
+                            aria-label={`下载 ${file.name}`}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              window.location.href = `${downloadBase}${encodeURIComponent(file.path)}`;
+                            }}
+                          >
+                            <IconDownload />
+                          </button>
+                        )
+                      ) : null}
+                      <button
+                        type="button"
+                        className="file-row-quick-action"
+                        draggable={false}
+                        title="复制相对路径"
+                        aria-label={`复制 ${file.name} 的相对路径`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void copyDisplayPath(file);
+                        }}
+                      >
+                        <IconCopy />
+                      </button>
+                      <button
+                        type="button"
+                        className="file-row-quick-action"
+                        draggable={false}
+                        title="更多操作"
+                        aria-label={`${file.name} 的更多操作`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          setFocusedPath(file.path);
+                          setContextMenu({ position: { x: rect.left, y: rect.bottom + 4 }, target: "row", file });
+                        }}
+                      >
+                        ⋯
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </div>
-
-        {!compact ? (
-          <div
-            className={`file-dropzone${dragOverPath === "__dropzone__" ? " is-over" : ""}`}
-            onDragOver={(event) => {
-              if (draggedPaths.length > 0) return;
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "copy";
-              setDragOverPath("__dropzone__");
-            }}
-            onDragLeave={() => setDragOverPath((previous) => (previous === "__dropzone__" ? null : previous))}
-            onDrop={(event) => handleDrop(event, currentPath, { allowMove: false })}
-            onClick={() => fileInputRef.current?.click()}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") fileInputRef.current?.click();
-            }}
-          >
-            拖拽文件到此处，快速上传到 {getDisplayPath(currentPath)}
-          </div>
-        ) : null}
-      </div>
       </div>
 
       {moveItems ? (
-        <div className="file-dialog-backdrop" role="presentation">
+        <div
+          className="file-dialog-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !isPending) setMoveItems(null);
+          }}
+        >
           <form
             className="file-dialog"
             onSubmit={(event) => {

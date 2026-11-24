@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { parentPath, rootPath, parseJson, type FileInfo } from "../file-manager/utils";
+import { formatSize, parentPath, rootPath, parseJson, type FileInfo } from "../file-manager/utils";
 import { confirm as confirmDialog } from "@/components/ui/dialog-host";
 import { toast } from "@/lib/toast";
-import { IconChevron, IconClose, IconDownload, IconFolder, IconPaperclip, IconTrash } from "./icons";
+import { IconCheck, IconChevron, IconClose, IconDownload, IconFolder, IconPaperclip, IconSearch, IconTrash } from "./icons";
 import type { MentionFile } from "./types";
 
 const FILE_VIEWS = [
@@ -18,25 +18,35 @@ const FILE_VIEWS = [
 type FileView = (typeof FILE_VIEWS)[number]["id"];
 
 export function AttachmentPanel({
+  attachedPaths = [],
   onAttach,
   onClose,
 }: {
+  attachedPaths?: string[];
   onAttach: (file: MentionFile) => void;
   onClose: () => void;
 }) {
   const [view, setView] = useState<FileView>("all");
   const [path, setPath] = useState(rootPath);
   const [files, setFiles] = useState<FileInfo[]>([]);
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingPath, setDeletingPath] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
+  const attachedSet = useMemo(() => new Set(attachedPaths), [attachedPaths]);
+  const filteredFiles = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    if (!keyword) return files;
+    return files.filter((file) => file.name.toLowerCase().includes(keyword));
+  }, [files, query]);
 
   const load = useCallback(async (nextPath: string) => {
     const request = ++requestId.current;
     setLoading(true);
     setError(null);
+    setQuery("");
     setPath(nextPath);
     try {
       const response = await fetch(
@@ -182,7 +192,27 @@ export function AttachmentPanel({
               <span className="opshelper-attachment-back"><IconChevron open={false} /></span>
             </button>
           ) : null}
-          <span>{path.replace(/^\/workspace\/?/, "工作目录/").replace(/\/$/, "")}</span>
+          <span className="opshelper-attachment-path-text">{path.replace(/^\/workspace\/?/, "工作目录/").replace(/\/$/, "")}</span>
+          <div className="opshelper-attachment-search">
+            <IconSearch />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="筛选当前目录..."
+              aria-label="筛选当前目录文件"
+            />
+            {query ? (
+              <button
+                type="button"
+                className="opshelper-attachment-search-clear"
+                aria-label="清除筛选"
+                onClick={() => setQuery("")}
+              >
+                <IconClose />
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="opshelper-attachment-list">
           {loading ? <div className="opshelper-attachment-empty">正在加载…</div> : null}
@@ -190,57 +220,73 @@ export function AttachmentPanel({
           {!loading && !error && files.length === 0 ? (
             <div className="opshelper-attachment-empty">当前目录没有文件</div>
           ) : null}
-          {files.map((file) => (
-            <div className="opshelper-attachment-row" key={file.path}>
-              {file.type === "directory" ? (
-                <button
-                  type="button"
-                  className="opshelper-attachment-open"
-                  onClick={() => void load(file.path)}
-                  title={`打开文件夹 ${file.name}`}
-                >
-                  <IconFolder />
-                  <span>{file.name}</span>
-                  <IconChevron open={false} />
-                </button>
-              ) : (
-                <>
-                  <IconPaperclip />
-                  <span className="opshelper-attachment-name">{file.name}</span>
+          {!loading && !error && files.length > 0 && filteredFiles.length === 0 ? (
+            <div className="opshelper-attachment-empty">没有匹配「{query.trim()}」的文件</div>
+          ) : null}
+          {filteredFiles.map((file) => {
+            const attached = attachedSet.has(file.path);
+            return (
+              <div className="opshelper-attachment-row" key={file.path}>
+                {file.type === "directory" ? (
                   <button
                     type="button"
-                    className="opshelper-attachment-add"
-                    onClick={() => onAttach({
-                      rel: file.path.replace(/^\/workspace\/?/, ""),
-                      path: file.path,
-                      filename: file.name,
-                      type: "file",
-                    })}
+                    className="opshelper-attachment-open"
+                    onClick={() => void load(file.path)}
+                    title={`打开文件夹 ${file.name}`}
                   >
-                    引用
+                    <IconFolder />
+                    <span>{file.name}</span>
+                    <IconChevron open={false} />
                   </button>
-                  <a
-                    className="opshelper-attachment-download"
-                    href={`/v1/users/me/files/download?path=${encodeURIComponent(file.path)}`}
-                    aria-label={`下载文件 ${file.name}`}
-                    title={`下载文件 ${file.name}`}
-                  >
-                    <IconDownload />
-                  </a>
-                  <button
-                    type="button"
-                    className="opshelper-attachment-delete"
-                    aria-label={`删除文件 ${file.name}`}
-                    title={`删除文件 ${file.name}`}
-                    disabled={deletingPath === file.path}
-                    onClick={() => void deleteFile(file)}
-                  >
-                    <IconTrash />
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
+                ) : (
+                  <>
+                    <IconPaperclip />
+                    <span className="opshelper-attachment-name" title={file.name}>{file.name}</span>
+                    <span className="opshelper-attachment-size">{formatSize(file.size)}</span>
+                    <button
+                      type="button"
+                      className={`opshelper-attachment-add${attached ? " attached" : ""}`}
+                      disabled={attached}
+                      onClick={() => {
+                        onAttach({
+                          rel: file.path.replace(/^\/workspace\/?/, ""),
+                          path: file.path,
+                          filename: file.name,
+                          type: "file",
+                        });
+                        toast.success(`已引用 ${file.name}`);
+                      }}
+                    >
+                      {attached ? (
+                        <>
+                          <IconCheck />
+                          已引用
+                        </>
+                      ) : "引用"}
+                    </button>
+                    <a
+                      className="opshelper-attachment-download"
+                      href={`/v1/users/me/files/download?path=${encodeURIComponent(file.path)}`}
+                      aria-label={`下载文件 ${file.name}`}
+                      title={`下载文件 ${file.name}`}
+                    >
+                      <IconDownload />
+                    </a>
+                    <button
+                      type="button"
+                      className="opshelper-attachment-delete"
+                      aria-label={`删除文件 ${file.name}`}
+                      title={`删除文件 ${file.name}`}
+                      disabled={deletingPath === file.path}
+                      onClick={() => void deleteFile(file)}
+                    >
+                      <IconTrash />
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>,

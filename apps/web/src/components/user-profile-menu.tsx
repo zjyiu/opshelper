@@ -10,7 +10,7 @@ import { toast } from "@/lib/toast";
 import { confirm as confirmDialog } from "./ui/dialog-host";
 import { AdminAccountSettings } from "./admin-account-settings";
 import { ContainerActions, startActionState, stopActionState } from "./container-actions";
-import { IconArchive, IconClose, IconContainer, IconShield, IconSliders } from "./chat/icons";
+import { IconArchive, IconChevron, IconClose, IconContainer, IconShield, IconSliders } from "./chat/icons";
 import { StatusPill } from "./status-pill";
 import { ThemeToggle } from "./theme-toggle";
 import { UserProfileName } from "./user-profile-name";
@@ -165,9 +165,16 @@ export function UserProfileMenu({ user }: { user: ProfileUser }) {
         onClick={() => setMenuOpen((open) => !open)}
       >
         <UserProfileName name={user.name} username={user.username} />
+        <span className="opshelper-userbar-caret" aria-hidden="true">
+          <IconChevron open={menuOpen} />
+        </span>
       </button>
       {menuOpen ? (
         <div className="opshelper-user-menu" id={menuId} role="menu" aria-label="用户菜单" ref={menuRef}>
+          <div className="opshelper-user-menu-header">
+            <strong>{user.name || user.username}</strong>
+            <span>@{user.username}</span>
+          </div>
           <button type="button" role="menuitem" onClick={() => openPanel("container")}>
             <IconContainer />
             <span>我的工作台容器</span>

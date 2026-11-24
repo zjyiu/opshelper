@@ -798,8 +798,8 @@ function contentSearchMatch(text: string, query: string) {
   if (start < 0) return null;
 
   const end = start + term.length;
-  const contextStart = Math.max(0, start - 80);
-  const contextEnd = Math.min(text.length, end + 100);
+  const contextStart = Math.max(0, start - 20);
+  const contextEnd = Math.min(text.length, end + 80);
   return {
     before: `${contextStart > 0 ? "…" : ""}${text.slice(contextStart, start)}`,
     match: text.slice(start, end),

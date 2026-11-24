@@ -39,7 +39,7 @@ import {
   settleStreamSnapshot,
 } from "./conversation-stream";
 import { guessMime, messageSignature } from "./format";
-import { IconClose } from "./icons";
+import { IconClose, IconCompose } from "./icons";
 import { PermissionCard, QuestionCard } from "./interaction-cards";
 import { fromInitialMessages, sortedMessages, type ChatMessage } from "./message-model";
 import { resolveNewConversationRequest } from "./new-conversation-request";
@@ -151,6 +151,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
     refreshHome,
     activateConversation,
     updateConversation,
+    startNewConversation,
   } = useWorkspace();
   const [snapshot, setSnapshot] = useState<ConversationSnapshot | null>(null);
   const requestedConversationId = searchParams.get("conversation");
@@ -827,15 +828,32 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
             <Link className="opshelper-collaboration-link" href="/archived-conversations">返回归档管理</Link>
           ) : null}
           <div className="opshelper-topbar-meta">
-            <div className="opshelper-chat-agent-title">
+            <div className="opshelper-chat-agent-title" title={activeAssistant.description || activeAssistant.name}>
               <AgentMark
                 id={activeAssistant.id}
                 name={activeAssistant.name}
                 description={activeAssistant.description}
               />
-              <span>{activeAssistant.name}</span>
+              <span className="opshelper-chat-agent-copy">
+                <span className="opshelper-chat-agent-name">{activeAssistant.name}</span>
+                {activeAssistant.description ? (
+                  <span className="opshelper-chat-agent-desc">{activeAssistant.description}</span>
+                ) : null}
+              </span>
             </div>
           </div>
+          {activeConversationId ? (
+            <button
+              type="button"
+              className="opshelper-topbar-new-chat"
+              title={`为 ${activeAssistant.name} 新建对话`}
+              aria-label={`为 ${activeAssistant.name} 新建对话`}
+              onClick={() => startNewConversation("", activeAssistant.id)}
+            >
+              <IconCompose />
+              <span>新建对话</span>
+            </button>
+          ) : null}
         </header>
         <div className={`opshelper-stage${conversationSurface === "new" && displayedMessages.length === 0 && !(sending || hasActiveExecution || forkingMessageId !== null) ? " opshelper-stage-empty" : ""}`}>
           <Conversation
@@ -938,6 +956,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
 
       {referenceFilesOpen ? (
         <AttachmentPanel
+          attachedPaths={readyAttachments.map((item) => item.path)}
           onAttach={mention}
           onClose={closeReferenceFiles}
         />

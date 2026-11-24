@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { ContainerStatus, ContainerSummary } from "@opshelper/shared";
 
+import { IconClose, IconSearch } from "./chat/icons";
+import { IconRefresh } from "./file-icons";
 import { ContainerActions, startActionState, stopActionState } from "./container-actions";
 import { ContainerLogsModal } from "./container-logs-modal";
 import { StatusPill } from "./status-pill";
@@ -43,16 +46,30 @@ function compareRows(a: ContainerRow, b: ContainerRow, field: SortField, dir: So
 }
 
 export function AdminContainerList({ containers }: { containers: ContainerRow[] }) {
+  const router = useRouter();
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [query, setQuery] = useState("");
   const [sortField, setSortField] = useState<SortField>("lastActivity");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(1);
   const [logsContainer, setLogsContainer] = useState<ContainerRow | null>(null);
+  const [refreshing, startRefresh] = useTransition();
 
-  const filtered = useMemo(
-    () => containers.filter((c) => matchFilter(c.status, filter)),
-    [containers, filter],
-  );
+  const counts = useMemo(() => ({
+    all: containers.length,
+    running: containers.filter((c) => matchFilter(c.status, "running")).length,
+    stopped: containers.filter((c) => matchFilter(c.status, "stopped")).length,
+    error: containers.filter((c) => matchFilter(c.status, "error")).length,
+  }), [containers]);
+
+  const filtered = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    return containers.filter((c) => {
+      if (!matchFilter(c.status, filter)) return false;
+      if (!keyword) return true;
+      return c.name.toLowerCase().includes(keyword) || c.ownerName.toLowerCase().includes(keyword);
+    });
+  }, [containers, filter, query]);
   const sorted = useMemo(
     () => [...filtered].sort((a, b) => compareRows(a, b, sortField, sortDir)),
     [filtered, sortField, sortDir],
@@ -88,22 +105,49 @@ export function AdminContainerList({ containers }: { containers: ContainerRow[] 
   return (
     <>
       <div className="admin-container-controls">
-        <div className="admin-status-chips" role="tablist" aria-label="状态筛选">
-          {FILTERS.map((f) => (
-            <button
-              key={f.value}
-              type="button"
-              role="tab"
-              aria-selected={filter === f.value}
-              className={`admin-status-chip${filter === f.value ? " admin-status-chip-active" : ""}`}
-              onClick={() => {
-                setFilter(f.value);
+        <div className="admin-container-filters-left">
+          <div className="admin-status-chips" role="tablist" aria-label="状态筛选">
+            {FILTERS.map((f) => (
+              <button
+                key={f.value}
+                type="button"
+                role="tab"
+                aria-selected={filter === f.value}
+                className={`admin-status-chip${filter === f.value ? " admin-status-chip-active" : ""}`}
+                onClick={() => {
+                  setFilter(f.value);
+                  setPage(1);
+                }}
+              >
+                <span>{f.label}</span>
+                <span className="admin-status-chip-count">{counts[f.value]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="admin-container-search">
+            <IconSearch />
+            <input
+              type="search"
+              className="field-input"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
                 setPage(1);
               }}
-            >
-              {f.label}
-            </button>
-          ))}
+              placeholder="搜索容器名或所属用户..."
+              aria-label="搜索容器或用户"
+            />
+            {query ? (
+              <button
+                type="button"
+                className="admin-container-search-clear"
+                aria-label="清除搜索"
+                onClick={() => { setQuery(""); setPage(1); }}
+              >
+                <IconClose />
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="admin-sort-controls">
           <button
@@ -119,6 +163,16 @@ export function AdminContainerList({ containers }: { containers: ContainerRow[] 
             onClick={() => toggleSort("name")}
           >
             按名称 {sortField === "name" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+          </button>
+          <button
+            type="button"
+            className="button-secondary admin-sort-button"
+            disabled={refreshing}
+            title="刷新容器状态"
+            aria-label="刷新容器状态"
+            onClick={() => startRefresh(() => router.refresh())}
+          >
+            <IconRefresh />
           </button>
         </div>
       </div>

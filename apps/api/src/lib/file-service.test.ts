@@ -214,3 +214,32 @@ test("directory downloads preserve long Unicode paths in standard TAR readers", 
     assert.equal(await readFile(path.join(extracted, archived), "utf8"), filename);
   }
 });
+
+test("searchDirectory recursively finds nested files and respects showHidden and scope", async () => {
+  const service = await loadFileService();
+  const userId = "search-user";
+  await service.createDirectory(userId, "chat-uploads/pdf/deep");
+  await service.createDirectory(userId, "outputs/xlsx");
+  await service.createDirectory(userId, ".hidden-dir");
+  await service.writeTextFile(userId, "chat-uploads/pdf/deep/report-2026.pdf", "pdf");
+  await service.writeTextFile(userId, "outputs/xlsx/report-summary.xlsx", "xlsx");
+  await service.writeTextFile(userId, ".hidden-dir/report-secret.txt", "secret");
+
+  const allMatches = await service.searchDirectory(userId, "/workspace", "REPORT", false);
+  assert.deepEqual(
+    allMatches.map((item) => item.path),
+    ["/workspace/chat-uploads/pdf/deep/report-2026.pdf", "/workspace/outputs/xlsx/report-summary.xlsx"],
+  );
+
+  const scopedMatches = await service.searchDirectory(userId, "/workspace/chat-uploads", "report", false);
+  assert.deepEqual(
+    scopedMatches.map((item) => item.path),
+    ["/workspace/chat-uploads/pdf/deep/report-2026.pdf"],
+  );
+
+  const hiddenMatches = await service.searchDirectory(userId, "/workspace", "secret", true);
+  assert.deepEqual(
+    hiddenMatches.map((item) => item.path),
+    ["/workspace/.hidden-dir/report-secret.txt"],
+  );
+});

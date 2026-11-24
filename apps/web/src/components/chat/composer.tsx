@@ -410,24 +410,38 @@ export function Composer({
             </label>
           ) : null}
           {busy ? (
-            <button
-              className="opshelper-composer-stop"
-              type="button"
-              onClick={onStop}
-              disabled={stopping}
-              aria-label={stopping ? "正在停止当前任务" : "停止当前任务"}
-              title={stopping ? "正在停止当前任务" : "停止当前任务"}
-            >
-              <IconStop />
-            </button>
+            <>
+              {canSend ? (
+                <button
+                  className="opshelper-send opshelper-send-queue"
+                  type="button"
+                  onClick={onSend}
+                  disabled={submitting}
+                  aria-label="将消息加入队列"
+                  title="将消息加入队列"
+                >
+                  <IconSend />
+                </button>
+              ) : null}
+              <button
+                className="opshelper-composer-stop"
+                type="button"
+                onClick={onStop}
+                disabled={stopping}
+                aria-label={stopping ? "正在停止当前任务" : "停止当前任务"}
+                title={stopping ? "正在停止当前任务" : "停止当前任务"}
+              >
+                <IconStop />
+              </button>
+            </>
           ) : (
             <button
               className="opshelper-send"
               type="button"
               onClick={onSend}
               disabled={!canSend || submitting}
-              aria-label={busy ? "将消息加入队列" : "发送"}
-              title={busy ? "将消息加入队列" : "发送"}
+              aria-label="发送"
+              title="发送"
             >
               <IconSend />
             </button>

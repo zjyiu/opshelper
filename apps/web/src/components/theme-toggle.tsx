@@ -30,18 +30,24 @@ export function ThemeProvider({ initialTheme, children }: {
 export function ThemeToggle() {
   const { theme, toggleTheme } = useContext(ThemeContext)!;
   const gray = theme === "gray";
+  const currentLabel = gray ? "白灰" : "清新绿";
+  const nextLabel = gray ? "清新绿" : "白灰";
 
   return (
     <button
       type="button"
       className="theme-toggle-menu-item"
       role="menuitemcheckbox"
-      aria-label="切换主题（白灰主题）"
+      aria-label={`切换主题（当前：${currentLabel}，点击切换到${nextLabel}）`}
       aria-checked={gray}
       onClick={toggleTheme}
     >
       <IconTheme />
-      <span>切换主题</span>
+      <span>主题配色</span>
+      <span className="theme-toggle-badge" aria-hidden="true">
+        <span className={`theme-toggle-swatch theme-toggle-swatch-${theme}`} />
+        {currentLabel}
+      </span>
     </button>
   );
 }

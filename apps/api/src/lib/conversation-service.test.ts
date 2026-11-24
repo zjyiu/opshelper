@@ -56,6 +56,19 @@ test("对话搜索只返回内容中第一个匹配位置", () => {
     match: "关键词",
     after: "，后面还有关键词",
   });
+
+  const longPrefix = "前".repeat(120);
+  const longSuffix = "后".repeat(120);
+  const longMatch = findConversationSearchContent(
+    [{ inputText: `${longPrefix}内容${longSuffix}`, resultSummary: null }],
+    [],
+    "内容",
+  );
+  assert.ok(longMatch);
+  assert.equal(longMatch.match, "内容");
+  assert.ok(longMatch.before.length <= 21, `expected compact leading context, got ${longMatch.before.length}`);
+  assert.ok(longMatch.before.startsWith("…"));
+  assert.ok(longMatch.after.endsWith("…"));
 });
 
 test("V2 提示保留任意附件路径，但不把 ZIP、表格和二进制文件发送为模型附件", () => {

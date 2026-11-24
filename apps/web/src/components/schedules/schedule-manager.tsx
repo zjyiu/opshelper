@@ -29,7 +29,7 @@ import {
 import { type FileInfo, parentPath, rootPath } from "@/components/file-manager/utils";
 import { guessMime } from "@/components/chat/format";
 import { renderAssistantMarkdown } from "@/components/chat/markdown";
-import { IconClock, IconPlus } from "@/components/chat/icons";
+import { IconClock, IconClose, IconPlus, IconSearch } from "@/components/chat/icons";
 import { confirm as confirmDialog } from "@/components/ui/dialog-host";
 import { usePageRefresh } from "@/components/navigation-refresh";
 
@@ -214,6 +214,8 @@ export function ScheduleManager({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [openRunId, setOpenRunId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | ScheduleSummary["status"]>("all");
   const selectedIdRef = useRef(selectedId);
   const refreshSequence = useRef(0);
   const refreshInFlight = useRef(0);
@@ -286,6 +288,16 @@ export function ScheduleManager({
 
   const selected = schedules.find((item) => item.id === selectedId) ?? null;
   const activeCount = schedules.filter((item) => item.status === "active").length;
+  const pausedCount = schedules.filter((item) => item.status === "paused").length;
+  const completedCount = schedules.filter((item) => item.status === "completed").length;
+  const filteredSchedules = useMemo(() => {
+    const keyword = searchQuery.trim().toLowerCase();
+    return schedules.filter((item) => {
+      if (statusFilter !== "all" && item.status !== statusFilter) return false;
+      if (!keyword) return true;
+      return item.name.toLowerCase().includes(keyword) || item.prompt.toLowerCase().includes(keyword);
+    });
+  }, [schedules, searchQuery, statusFilter]);
   // 轮询会替换 detail 对象，只有切换任务（id 不一致）时才让详情短暂进入加载态。
   const currentDetail = detail && detail.schedule.id === selectedId ? detail : null;
   // 结果弹窗按 id 取最新记录，轮询刷新时窗口内的状态和结果会跟着更新。
@@ -487,7 +499,60 @@ export function ScheduleManager({
 
         {notice ? (
           <div className={`schedule-notice ${notice.tone}`} role={notice.tone === "error" ? "alert" : "status"}>
-            {notice.text}
+            <span>{notice.text}</span>
+            <button
+              type="button"
+              className="schedule-notice-close"
+              aria-label="关闭提示"
+              onClick={() => setNotice(null)}
+            >
+              <IconClose />
+            </button>
+          </div>
+        ) : null}
+
+        {!loading && schedules.length > 0 ? (
+          <div className="schedule-filter-bar">
+            <div className="schedule-search-wrap">
+              <IconSearch />
+              <input
+                type="search"
+                className="field-input schedule-search-input"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="搜索任务名称或说明..."
+                aria-label="搜索定时任务"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="schedule-search-clear"
+                  aria-label="清除搜索"
+                  onClick={() => setSearchQuery("")}
+                >
+                  <IconClose />
+                </button>
+              ) : null}
+            </div>
+            <div className="schedule-status-tabs" role="tablist" aria-label="按状态筛选定时任务">
+              {([
+                ["all", `全部 (${schedules.length})`],
+                ["active", `运行中 (${activeCount})`],
+                ["paused", `已暂停 (${pausedCount})`],
+                ...(completedCount > 0 ? [["completed", `已完成 (${completedCount})`] as const] : []),
+              ] as Array<["all" | ScheduleSummary["status"], string]>).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={statusFilter === value}
+                  className={statusFilter === value ? "active" : ""}
+                  onClick={() => setStatusFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -528,7 +593,19 @@ export function ScheduleManager({
         ) : (
           <div className="schedule-body">
             <div className="schedule-panels" role="group" aria-label="定时任务列表">
-              {schedules.map((schedule) => (
+              {filteredSchedules.length === 0 ? (
+                <div className="schedule-empty">
+                  <div>没有符合条件的定时任务</div>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    style={{ marginTop: 10 }}
+                    onClick={() => { setSearchQuery(""); setStatusFilter("all"); }}
+                  >
+                    重置筛选
+                  </button>
+                </div>
+              ) : filteredSchedules.map((schedule) => (
                 <button
                   key={schedule.id}
                   type="button"

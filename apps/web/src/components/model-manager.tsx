@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { confirm as confirmDialog } from "./ui/dialog-host";
 import { toast } from "@/lib/toast";
@@ -50,7 +50,19 @@ export function ModelManager({ onDirty }: { onDirty: () => void }) {
   const [showKey, setShowKey] = useState(false);
   const [rows, setRows] = useState<ModelRow[]>([]);
   const [defaultKey, setDefaultKey] = useState<string | null>(null);
+  const [savedSnapshot, setSavedSnapshot] = useState<string>("");
   const [saving, setSaving] = useState(false);
+
+  const currentSnapshot = useMemo(() => {
+    const defaultModel = rows.find((m) => m.key === defaultKey)?.id ?? rows[0]?.id ?? "";
+    return JSON.stringify({
+      baseURL: baseURL.trim(),
+      apiKey: apiKey.trim(),
+      models: rows.map((m) => ({ id: m.id.trim(), name: m.name.trim() })),
+      defaultModel: defaultModel.trim(),
+    });
+  }, [apiKey, baseURL, defaultKey, rows]);
+  const dirty = loaded && savedSnapshot !== "" && currentSnapshot !== savedSnapshot;
 
   const load = useCallback(async () => {
     try {
@@ -63,9 +75,16 @@ export function ModelManager({ onDirty }: { onDirty: () => void }) {
         (m): ModelRow => ({ key: newRowKey(), id: m.id, name: m.name }),
       );
       setRows(nextRows);
-      setDefaultKey(
-        nextRows.find((r) => r.id === data.defaultModel)?.key ?? null,
-      );
+      const nextDefaultKey =
+        nextRows.find((r) => r.id === data.defaultModel)?.key ?? null;
+      setDefaultKey(nextDefaultKey);
+      const resolvedDefault = nextRows.find((r) => r.key === nextDefaultKey)?.id ?? nextRows[0]?.id ?? "";
+      setSavedSnapshot(JSON.stringify({
+        baseURL: data.baseURL.trim(),
+        apiKey: data.apiKey.trim(),
+        models: nextRows.map((m) => ({ id: m.id.trim(), name: m.name.trim() })),
+        defaultModel: resolvedDefault.trim(),
+      }));
       setLoaded(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "加载模型配置失败");
@@ -246,6 +265,7 @@ export function ModelManager({ onDirty }: { onDirty: () => void }) {
                 </label>
                 <span className="opshelper-model-col-actions">
                   <button
+                    type="button"
                     className="opshelper-skill-btn small danger"
                     onClick={() => removeRow(row.key)}
                   >
@@ -257,14 +277,28 @@ export function ModelManager({ onDirty }: { onDirty: () => void }) {
           </div>
         )}
         <div className="opshelper-skill-toolbar">
-          <button className="opshelper-skill-btn small" onClick={addRow}>
+          <button type="button" className="opshelper-skill-btn small" onClick={addRow}>
             新增模型
           </button>
         </div>
       </div>
 
       <div className="opshelper-skill-editor-actions">
+        {dirty ? (
+          <span className="agent-dirty-badge" style={{ marginRight: "auto" }}>有未保存修改</span>
+        ) : null}
+        {dirty ? (
+          <button
+            type="button"
+            className="opshelper-skill-btn"
+            onClick={() => void load()}
+            disabled={saving}
+          >
+            撤销修改
+          </button>
+        ) : null}
         <button
+          type="button"
           className="opshelper-skill-btn primary"
           onClick={() => void save()}
           disabled={saving}

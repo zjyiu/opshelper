@@ -136,15 +136,20 @@ export function WorkspaceShell({
   const [executionBlockedReason, setExecutionBlockedReason] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sideWidth, setSideWidth] = useState(SIDE_WIDTH.fallback);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useEffect(() => {
     setSideWidth(readWidth(SIDE_WIDTH.key, SIDE_WIDTH));
+    setSidebarCollapsed(readCollapsed());
   }, []);
   const changeSideWidth = useCallback((width: number) => {
     setSideWidth(width);
     saveWidth(SIDE_WIDTH.key, width);
   }, []);
-  const [showSidebar, setShowSidebar] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const changeSidebarCollapsed = useCallback((collapsed: boolean) => {
+    setSidebarCollapsed(collapsed);
+    saveCollapsed(collapsed);
+  }, []);
   const [newConversationRequest, setNewConversationRequest] = useState<NewConversationRequest | null>(null);
   const newConversationSequenceRef = useRef(0);
   const activeAgentKeyRef = useRef<string | null>(null);
@@ -481,14 +486,14 @@ export function WorkspaceShell({
           className={`opshelper-shell${showSidebar ? " opshelper-sidebar-open" : ""}${sidebarCollapsed ? " opshelper-sidebar-collapsed" : ""}`}
           style={{ "--g-side-user": `${sideWidth}px` } as React.CSSProperties}
         >
-          <WorkspaceSidebar user={user} onCollapse={() => { setShowSidebar(false); setSidebarCollapsed(true); }} />
+          <WorkspaceSidebar user={user} onCollapse={() => { setShowSidebar(false); changeSidebarCollapsed(true); }} />
           {sidebarCollapsed ? (
             <button
               className="opshelper-sidebar-expand"
               type="button"
               aria-label="展开侧边栏"
               title="展开侧边栏"
-              onClick={() => setSidebarCollapsed(false)}
+              onClick={() => changeSidebarCollapsed(false)}
             >
               <IconSidePanel />
             </button>
@@ -509,6 +514,24 @@ export function WorkspaceShell({
 }
 
 const SIDE_WIDTH = { min: 220, max: 420, fallback: 280, key: "opshelper.sideWidth" };
+const SIDE_COLLAPSED_KEY = "opshelper.sidebarCollapsed";
+
+function readCollapsed() {
+  try {
+    return localStorage.getItem(SIDE_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function saveCollapsed(collapsed: boolean) {
+  try {
+    if (collapsed) localStorage.setItem(SIDE_COLLAPSED_KEY, "1");
+    else localStorage.removeItem(SIDE_COLLAPSED_KEY);
+  } catch {
+    // Browser storage may be unavailable.
+  }
+}
 
 function readWidth(key: string, range: { min: number; max: number; fallback: number }) {
   try {
@@ -642,8 +665,11 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
   const searchButtonRef = useRef<HTMLButtonElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchAgentFilterRef = useRef<HTMLDivElement>(null);
+  const searchResultRefs = useRef<Array<HTMLAnchorElement | null>>([]);
   const [selectedSearchAgentKeys, setSelectedSearchAgentKeys] = useState<string[] | null>(null);
   const [searchAgentMenuOpen, setSearchAgentMenuOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<ConversationSearchResult[]>([]);
@@ -651,6 +677,8 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   const [searchError, setSearchError] = useState<string | null>(null);
   const [newConversationMenuOpen, setNewConversationMenuOpen] = useState(false);
   const [expandedAgentKey, setExpandedAgentKey] = useState<string | null>(null);
+  const [draggedAgentKey, setDraggedAgentKey] = useState<string | null>(null);
+  const [dragOverAgentKey, setDragOverAgentKey] = useState<string | null>(null);
   const [menuConversationId, setMenuConversationId] = useState<string | null>(null);
   const closeConversationMenu = useCallback(() => setMenuConversationId(null), []);
   const [batchMode, setBatchMode] = useState(false);
@@ -699,6 +727,7 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   const closeSearch = useCallback(() => {
     setSearch("");
     setSearchOpen(false);
+    setSearchActiveIndex(0);
     setSelectedSearchAgentKeys(null);
     setSearchAgentMenuOpen(false);
     setSearchResults([]);
@@ -707,14 +736,49 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   }, []);
 
   useEffect(() => {
+    const onGlobalKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        if (document.querySelector(".file-dialog-backdrop, .schedule-dialog-backdrop")) return;
+        event.preventDefault();
+        if (searchOpen) closeSearch();
+        else setSearchOpen(true);
+      }
+    };
+    document.addEventListener("keydown", onGlobalKeyDown);
+    return () => document.removeEventListener("keydown", onGlobalKeyDown);
+  }, [closeSearch, searchOpen]);
+
+  useEffect(() => {
     if (!searchOpen) return;
     requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeSearch();
+      if (event.key === "Escape") {
+        if (searchAgentMenuOpen) {
+          setSearchAgentMenuOpen(false);
+          searchInputRef.current?.focus();
+        } else {
+          closeSearch();
+        }
+      }
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closeSearch, searchOpen]);
+  }, [closeSearch, searchAgentMenuOpen, searchOpen]);
+
+  useEffect(() => {
+    if (!searchAgentMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!searchAgentFilterRef.current?.contains(event.target as Node)) {
+        setSearchAgentMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [searchAgentMenuOpen]);
 
   const searchTerm = search.trim();
   useEffect(() => {
@@ -786,6 +850,33 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
     }
   };
 
+  const orderedAgents = useMemo(() => {
+    const positions = new Map(agentOrder.map((key, index) => [key, index]));
+    return [...agents].sort((left, right) =>
+      (positions.get(left.key) ?? Number.MAX_SAFE_INTEGER)
+      - (positions.get(right.key) ?? Number.MAX_SAFE_INTEGER));
+  }, [agentOrder, agents]);
+
+  const recentSearchItems = useMemo(() => {
+    const agentNames = new Map(agents.map((agent) => [agent.key, agent.name]));
+    const allowed = selectedSearchAgentKeys ? new Set(selectedSearchAgentKeys) : null;
+    return [...conversations]
+      .filter((item) => !allowed || allowed.has(item.leadAgentKey))
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .slice(0, 6)
+      .map((conversation) => ({
+        conversation,
+        agentName: agentNames.get(conversation.leadAgentKey) ?? conversation.leadAgentKey,
+        matchedContent: null,
+      }));
+  }, [agents, conversations, selectedSearchAgentKeys]);
+
+  const visibleSearchItems = searchTerm ? searchResults : recentSearchItems;
+
+  useEffect(() => {
+    setSearchActiveIndex(0);
+  }, [searchOpen, searchTerm, selectedSearchAgentKeys, searchResults]);
+
   const conversationGroups = useMemo(
     () => groupConversationsByAgent(conversations, agents, "", agentOrder),
     [agentOrder, agents, conversations],
@@ -793,18 +884,24 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
   const draggedAgentKeyRef = useRef<string | null>(null);
   const onAgentGroupDragStart = (event: React.DragEvent<HTMLDivElement>, agentKey: string) => {
     draggedAgentKeyRef.current = agentKey;
+    setDraggedAgentKey(agentKey);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", agentKey);
   };
-  const onAgentGroupDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+  const onAgentGroupDragOver = (event: React.DragEvent<HTMLDivElement>, targetKey: string) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
+    if (draggedAgentKeyRef.current && draggedAgentKeyRef.current !== targetKey) {
+      setDragOverAgentKey(targetKey);
+    }
   };
   const onAgentGroupDrop = (event: React.DragEvent<HTMLDivElement>, targetKey: string) => {
     event.preventDefault();
     const activeKey = draggedAgentKeyRef.current ?? event.dataTransfer.getData("text/plain");
     if (activeKey) reorderAgentGroups(activeKey, targetKey);
     draggedAgentKeyRef.current = null;
+    setDraggedAgentKey(null);
+    setDragOverAgentKey(null);
   };
   const selectedConversations = conversations.filter((item) => selectedIds.has(item.id));
   const toggleSelection = (ids: string[]) => {
@@ -878,7 +975,7 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
           aria-label={searchOpen ? "收起搜索" : "搜索对话"}
           aria-expanded={searchOpen}
           aria-haspopup="dialog"
-          title="搜索对话"
+          title="搜索对话 (Ctrl+K)"
           onClick={() => {
             if (searchOpen) closeSearch();
             else setSearchOpen(true);
@@ -935,23 +1032,39 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                   event.preventDefault();
                   setNewConversationMenuOpen(false);
                   newConversationButtonRef.current?.focus();
+                  return;
+                }
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const options = newConversationOptionRefs.current.filter(
+                    (el): el is HTMLButtonElement => Boolean(el),
+                  );
+                  if (!options.length) return;
+                  const currentIndex = options.indexOf(document.activeElement as HTMLButtonElement);
+                  const nextIndex = event.key === "ArrowDown"
+                    ? (currentIndex + 1 + options.length) % options.length
+                    : (currentIndex - 1 + options.length) % options.length;
+                  options[nextIndex]?.focus();
                 }
               }}
             >
               <div className="opshelper-new-conversation-hint">选择智能体</div>
-              {agents.length === 0 ? <div className="opshelper-new-conversation-hint">暂无可用智能体</div> : null}
-              {agents.map((agent, index) => (
+              {orderedAgents.length === 0 ? <div className="opshelper-new-conversation-hint">暂无可用智能体</div> : null}
+              {orderedAgents.map((agent, index) => (
                 <button
                   key={agent.key}
                   ref={(element) => { newConversationOptionRefs.current[index] = element; }}
                   type="button"
-                  className="opshelper-new-conversation-option"
+                  className={`opshelper-new-conversation-option${activeAgent?.key === agent.key ? " current" : ""}`}
                   role="menuitem"
                   onClick={() => chooseAgentForNewConversation(agent.key)}
                 >
                   <AgentMark id={agent.key} name={agent.name} description={agent.description} />
                   <span className="opshelper-assistant-text">
-                    <span className="opshelper-assistant-name">{agent.name}</span>
+                    <span className="opshelper-assistant-name">
+                      {agent.name}
+                      {activeAgent?.key === agent.key ? <span className="opshelper-agent-current-tag">当前</span> : null}
+                    </span>
                     <span className="opshelper-assistant-desc">{agent.description}</span>
                   </span>
                 </button>
@@ -1012,13 +1125,20 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
             return (
               <section className="opshelper-conversation-group" key={group.agentKey}>
                 <div
-                  className="opshelper-conversation-agent-row"
+                  className={`opshelper-conversation-agent-row${expanded ? " expanded" : ""}${draggedAgentKey === group.agentKey ? " dragging" : ""}${dragOverAgentKey === group.agentKey ? " drag-over" : ""}`}
                   draggable={!batchMode}
-                  title={batchMode ? undefined : "拖动调整智能体顺序"}
+                  title={batchMode ? undefined : "点击展开/收起，拖动可调整顺序"}
                   onDragStart={(event) => onAgentGroupDragStart(event, group.agentKey)}
-                  onDragOver={onAgentGroupDragOver}
+                  onDragOver={(event) => onAgentGroupDragOver(event, group.agentKey)}
+                  onDragLeave={() => {
+                    setDragOverAgentKey((current) => (current === group.agentKey ? null : current));
+                  }}
                   onDrop={(event) => onAgentGroupDrop(event, group.agentKey)}
-                  onDragEnd={() => { draggedAgentKeyRef.current = null; }}
+                  onDragEnd={() => {
+                    draggedAgentKeyRef.current = null;
+                    setDraggedAgentKey(null);
+                    setDragOverAgentKey(null);
+                  }}
                 >
                   {batchMode ? <SelectionCheckbox
                     label={`选择${group.agentName}的所有对话`}
@@ -1035,12 +1155,20 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                     disabled={batchBusy}
                     onClick={() => batchMode ? toggleSelection(groupIds) : toggleConversationGroup(group.agentKey)}
                   >
+                    {!batchMode ? (
+                      <span className="opshelper-conversation-agent-chevron" aria-hidden="true">
+                        <IconChevron open={expanded} />
+                      </span>
+                    ) : null}
                     <AgentMark
                       id={group.agentKey}
                       name={group.agentName}
                       description={group.agentDescription}
                     />
                     <span className="opshelper-conversation-agent-name">{group.agentName}</span>
+                    <span className="opshelper-conversation-agent-count" aria-label={`${group.conversations.length} 个对话`}>
+                      {group.conversations.length}
+                    </span>
                   </button>
                   {!batchMode ? <button
                     className="opshelper-conversation-agent-add"
@@ -1221,10 +1349,32 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
               onChange={(event) => setSearch(event.target.value)}
               onFocus={() => setSearchAgentMenuOpen(false)}
               onClick={() => setSearchAgentMenuOpen(false)}
-              placeholder="搜索对话内容..."
+              onKeyDown={(event) => {
+                if (!visibleSearchItems.length) return;
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  const next = (searchActiveIndex + 1) % visibleSearchItems.length;
+                  setSearchActiveIndex(next);
+                  searchResultRefs.current[next]?.scrollIntoView({ block: "nearest" });
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const next = (searchActiveIndex - 1 + visibleSearchItems.length) % visibleSearchItems.length;
+                  setSearchActiveIndex(next);
+                  searchResultRefs.current[next]?.scrollIntoView({ block: "nearest" });
+                } else if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                  const chosen = visibleSearchItems[searchActiveIndex];
+                  if (chosen) {
+                    event.preventDefault();
+                    closeSearch();
+                    setShowSidebar(false);
+                    router.push(`/chat?conversation=${encodeURIComponent(chosen.conversation.id)}`);
+                  }
+                }
+              }}
+              placeholder="搜索对话标题或内容..."
               aria-label="搜索所有对话"
             />
-            <div className="opshelper-search-agent-filter">
+            <div className="opshelper-search-agent-filter" ref={searchAgentFilterRef}>
               <button
                 type="button"
                 className="opshelper-search-agent-filter-toggle"
@@ -1270,19 +1420,21 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
               <IconClose />
             </button>
           </div>
-          {searchTerm ? (
-            <div className="opshelper-search-dialog-results" aria-live="polite">
-              {searchLoading ? (
+          <div className="opshelper-search-dialog-results" aria-live="polite">
+            {searchTerm ? (
+              searchLoading ? (
                 <div className="opshelper-search-dialog-empty">正在搜索…</div>
               ) : searchError ? (
                 <div className="opshelper-search-dialog-empty" role="alert">{searchError}</div>
               ) : searchResults.length === 0 ? (
                 <div className="opshelper-search-dialog-empty">没有匹配的对话</div>
-              ) : searchResults.map(({ conversation, agentName, matchedContent }) => (
+              ) : searchResults.map(({ conversation, agentName, matchedContent }, index) => (
                 <Link
-                  className="opshelper-search-result"
+                  ref={(element) => { searchResultRefs.current[index] = element; }}
+                  className={`opshelper-search-result${index === searchActiveIndex ? " active" : ""}`}
                   href={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
                   key={conversation.id}
+                  onMouseEnter={() => setSearchActiveIndex(index)}
                   onClick={() => {
                     closeSearch();
                     setShowSidebar(false);
@@ -1294,7 +1446,9 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                     </span>
                     {matchedContent ? (
                       <span className="opshelper-search-result-content">
-                        {matchedContent.before}
+                        {matchedContent.before.length > 22
+                          ? `…${matchedContent.before.slice(-20)}`
+                          : matchedContent.before}
                         <mark className="opshelper-search-match">{matchedContent.match}</mark>
                         {matchedContent.after}
                       </span>
@@ -1302,9 +1456,43 @@ function WorkspaceSidebar({ user, onCollapse }: { user: WorkspaceUser; onCollaps
                   </span>
                   <span className="opshelper-search-result-agent">{agentName}</span>
                 </Link>
-              ))}
+              ))
+            ) : recentSearchItems.length > 0 ? (
+              <>
+                <div className="opshelper-search-section-label">最近对话</div>
+                {recentSearchItems.map(({ conversation, agentName }, index) => (
+                  <Link
+                    ref={(element) => { searchResultRefs.current[index] = element; }}
+                    className={`opshelper-search-result${index === searchActiveIndex ? " active" : ""}`}
+                    href={`/chat?conversation=${encodeURIComponent(conversation.id)}`}
+                    key={conversation.id}
+                    onMouseEnter={() => setSearchActiveIndex(index)}
+                    onClick={() => {
+                      closeSearch();
+                      setShowSidebar(false);
+                    }}
+                  >
+                    <span className="opshelper-search-result-copy">
+                      <span className="opshelper-search-result-title">
+                        {cleanTitle(conversation.title)}
+                      </span>
+                    </span>
+                    <span className="opshelper-search-result-meta">
+                      <span className="opshelper-search-result-agent">{agentName}</span>
+                      <span className="opshelper-search-result-time">{formatConversationTime(conversation.updatedAt)}</span>
+                    </span>
+                  </Link>
+                ))}
+              </>
+            ) : (
+              <div className="opshelper-search-dialog-empty">输入关键词搜索对话标题与消息内容</div>
+            )}
+            <div className="opshelper-search-dialog-foot">
+              <span>↑↓ 选择</span>
+              <span>Enter 打开</span>
+              <span>Esc 关闭</span>
             </div>
-          ) : null}
+          </div>
         </section>
       </div>,
       document.body,

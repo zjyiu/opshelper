@@ -123,6 +123,7 @@ export function Conversation({
   const latestReplyRef = useRef<HTMLDivElement>(null);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [editingMessage, setEditingMessage] = useState<{ id: string; text: string } | null>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
   const shouldFollowOutput = useRef(true);
   const latestReplyIdRef = useRef<string | null>(null);
   const settledSessionId = useRef<string | null>(null);
@@ -145,6 +146,17 @@ export function Conversation({
     if (!element) return;
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
     shouldFollowOutput.current = distanceFromBottom <= 48;
+    setShowScrollBottom(distanceFromBottom > 180);
+  };
+
+  useEffect(() => {
+    setShowScrollBottom(false);
+  }, [sessionId]);
+
+  const scrollToLatest = () => {
+    shouldFollowOutput.current = true;
+    setShowScrollBottom(false);
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   // 用户一旦在操作记录里翻看（滚轮、拖滚动条、键盘），就停止自动跟随输出，
@@ -287,6 +299,7 @@ export function Conversation({
                   }}
                 />
                 <div className="opshelper-msg-edit-actions">
+                  <span className="opshelper-msg-edit-hint">Ctrl+Enter 发送 · Esc 取消</span>
                   <button
                     type="button"
                     className="opshelper-msg-edit-cancel"
@@ -371,6 +384,18 @@ export function Conversation({
             <TypingDots />
           </div>
         </div>
+      ) : null}
+      {showScrollBottom && messages.length > 0 ? (
+        <button
+          type="button"
+          className="opshelper-scroll-bottom"
+          aria-label="回到底部"
+          title="回到底部"
+          onClick={scrollToLatest}
+        >
+          <span className="opshelper-scroll-bottom-arrow" aria-hidden="true">↓</span>
+          <span>回到底部</span>
+        </button>
       ) : null}
       <div ref={endRef} />
     </div>

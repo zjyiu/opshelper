@@ -297,6 +297,76 @@ export async function listDirectory(
   return results;
 }
 
+export async function searchDirectory(
+  userId: string,
+  dirPath: string,
+  query: string,
+  showHidden = false,
+  limit = 200,
+): Promise<FileInfo[]> {
+  const needle = query.trim().toLocaleLowerCase();
+  if (!needle) return listDirectory(userId, dirPath, showHidden);
+
+  const resolved = await resolveUserPathSafe(userId, dirPath);
+  await ensureUserDataDir(userId);
+
+  const results: FileInfo[] = [];
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: resolved, depth: 0 }];
+  const maxDepth = 16;
+  const maxVisitedDirs = 1000;
+  let visitedDirs = 0;
+
+  while (queue.length > 0 && results.length < limit && visitedDirs < maxVisitedDirs) {
+    const current = queue.shift()!;
+    visitedDirs += 1;
+
+    let entries;
+    try {
+      entries = await readdir(current.dir, { withFileTypes: true });
+    } catch (e: unknown) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT" || (e as NodeJS.ErrnoException).code === "ENOTDIR") {
+        continue;
+      }
+      throw e;
+    }
+
+    for (const entry of entries) {
+      if (!showHidden && entry.name.startsWith(".")) continue;
+
+      const entryPath = path.join(current.dir, entry.name);
+      try {
+        const s = await lstat(entryPath);
+        if (s.isSymbolicLink()) continue;
+        const isDir = s.isDirectory();
+
+        if (entry.name.toLocaleLowerCase().includes(needle)) {
+          results.push({
+            name: entry.name,
+            path: toWorkspacePath(userId, entryPath),
+            type: isDir ? "directory" : "file",
+            size: isDir ? null : s.size,
+            modified_at: Math.floor(s.mtimeMs / 1000),
+          });
+          if (results.length >= limit) break;
+        }
+
+        if (isDir && current.depth < maxDepth) {
+          queue.push({ dir: entryPath, depth: current.depth + 1 });
+        }
+      } catch {
+        // Entry disappeared between readdir and stat — skip
+      }
+    }
+  }
+
+  results.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return results;
+}
+
 export async function deleteItem(
   userId: string,
   itemPath: string,

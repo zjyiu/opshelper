@@ -38,8 +38,67 @@ export function IconFolder() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>;
 }
 
+export function IconFolderFilled() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 28 28" fill="none">
+      <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h5.1a2.5 2.5 0 0 1 1.86.83L14.2 7.8h8.3A2.5 2.5 0 0 1 25 10.3v10.2a2.5 2.5 0 0 1-2.5 2.5h-17A2.5 2.5 0 0 1 3 20.5v-13Z" fill="#f5b942" />
+      <path d="M3 10.5h22v10a2.5 2.5 0 0 1-2.5 2.5h-17A2.5 2.5 0 0 1 3 20.5v-10Z" fill="#fccf62" />
+      <path d="M3 10.5h22v1H3v-1Z" fill="#ffffff" fillOpacity="0.35" />
+    </svg>
+  );
+}
+
+export function IconListView() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function IconGridView() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
+
+export function IconCloudUpload() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 14.9A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.24" />
+      <path d="M12 12v9" />
+      <path d="m16 16-4-4-4 4" />
+    </svg>
+  );
+}
+
+export function IconSparkles() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z" />
+      <path d="M19 15v4M17 17h4" />
+    </svg>
+  );
+}
+
 function IconFile() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><polyline points="13 2 13 9 20 9" /></svg>;
+  return (
+    <svg aria-hidden="true" viewBox="0 0 28 28" fill="none">
+      <path d="M6 4.5A2.5 2.5 0 0 1 8.5 2h7.2L22 8.3V23.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 6 23.5v-19Z" fill="#e8eef5" stroke="#94a3b8" strokeWidth="1.4" />
+      <path d="M15.5 2v4.5a2 2 0 0 0 2 2H22" stroke="#94a3b8" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M10 14h8M10 18h5.5" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 export function IconChevronRight() {
@@ -129,6 +188,44 @@ function IconPDF() {
   );
 }
 
+function IconImage() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="#8b5cf6" stroke="none">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <circle cx="9" cy="9.5" r="1.8" fill="#fff" />
+      <path d="M5.5 18.5 10.5 13l3.2 3.2 2.3-2.5 2.5 4.8h-13Z" fill="#fff" fillOpacity="0.92" />
+    </svg>
+  );
+}
+
+function IconCode() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="#475569" stroke="none">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="m10 9-3 3 3 3M14 9l3 3-3 3" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconArchiveFile() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="#d97706" stroke="none">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="M12 5v2M12 9v2M12 13v2" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+      <rect x="9.5" y="15" width="5" height="3.5" rx="1" fill="#fff" />
+    </svg>
+  );
+}
+
+function IconTextDoc() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="#0ea5e9" stroke="none">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="M7.5 9h9M7.5 12.5h9M7.5 16h6" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function getFileIcon(filename: string) {
   const ext = filename.split(".").pop()?.toLowerCase();
   switch (ext) {
@@ -140,6 +237,7 @@ export function getFileIcon(filename: string) {
       return <IconPPT />;
     case "xls":
     case "xlsx":
+    case "csv":
       return <IconExcel />;
     case "md":
       return <IconMarkdown />;
@@ -147,6 +245,39 @@ export function getFileIcon(filename: string) {
       return <IconJSON />;
     case "pdf":
       return <IconPDF />;
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+    case "svg":
+    case "bmp":
+      return <IconImage />;
+    case "ts":
+    case "tsx":
+    case "js":
+    case "jsx":
+    case "py":
+    case "sh":
+    case "bash":
+    case "yaml":
+    case "yml":
+    case "toml":
+    case "xml":
+    case "html":
+    case "css":
+    case "sql":
+      return <IconCode />;
+    case "zip":
+    case "tar":
+    case "gz":
+    case "tgz":
+    case "rar":
+    case "7z":
+      return <IconArchiveFile />;
+    case "txt":
+    case "log":
+      return <IconTextDoc />;
     default:
       return <IconFile />;
   }

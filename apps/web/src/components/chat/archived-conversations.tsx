@@ -9,6 +9,7 @@ import { useWorkspace } from "../workspace-shell";
 import { confirm as confirmDialog } from "../ui/dialog-host";
 import { cleanTitle, formatConversationTimestamp } from "./format";
 import { filterAndSortArchivedConversations } from "./archived-conversation-list";
+import { IconArchive, IconClose, IconSearch } from "./icons";
 
 export function ArchivedConversations() {
   const { agents, refreshHome } = useWorkspace();
@@ -72,49 +73,101 @@ export function ArchivedConversations() {
   });
   return (
     <div className="opshelper-archived-page">
-      <div className="opshelper-archived-filters">
-        <input
-          type="search"
-          aria-label="搜索归档对话"
-          placeholder="搜索对话"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <select
-          aria-label="按智能体筛选"
-          value={agentKey}
-          onChange={(event) => setAgentKey(event.target.value)}
-        >
-          <option value="">所有智能体</option>
-          {archivedAgentOptions.map((agent) => (
-            <option key={agent.key} value={agent.key}>{agent.name}</option>
-          ))}
-        </select>
-      </div>
-      {loading ? <p role="status">正在读取归档对话…</p> : null}
-      {error ? <div role="alert">{error} <button type="button" onClick={() => void load()}>重试</button></div> : null}
-      {!loading && !error && conversations.length === 0 ? <p>暂无归档对话</p> : null}
-      {!loading && !error && conversations.length > 0 && filteredConversations.length === 0 ? (
-        <p>没有符合条件的归档对话</p>
-      ) : null}
-      {filteredConversations.map((item) => (
-        <div className="opshelper-archived-row" key={item.id}>
-          <div>
-            <Link href={`/chat?conversation=${encodeURIComponent(item.id)}&from=archive`}>
-              {cleanTitle(item.title)}
-            </Link>
-            <span>
-              {agentNames.get(item.leadAgentKey) ?? item.leadAgentKey}
-              {" · "}
-              {formatConversationTimestamp(item.archivedAt ?? item.updatedAt)}
-            </span>
+      <section className="opshelper-archived-card">
+        <div className="opshelper-archived-toolbar">
+          <div className="opshelper-archived-filters">
+            <div className="opshelper-archived-search-wrap">
+              <IconSearch />
+              <input
+                type="search"
+                aria-label="搜索归档对话"
+                placeholder="搜索归档对话标题..."
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="opshelper-archived-search-clear"
+                  aria-label="清除搜索"
+                  title="清除搜索"
+                  onClick={() => setQuery("")}
+                >
+                  <IconClose />
+                </button>
+              ) : null}
+            </div>
+            <select
+              aria-label="按智能体筛选"
+              value={agentKey}
+              onChange={(event) => setAgentKey(event.target.value)}
+            >
+              <option value="">所有智能体</option>
+              {archivedAgentOptions.map((agent) => (
+                <option key={agent.key} value={agent.key}>{agent.name}</option>
+              ))}
+            </select>
           </div>
-          <div className="opshelper-archived-actions">
-            <button type="button" disabled={busy !== null || loading} onClick={() => void act(item, "restore")}>恢复</button>
-            <button type="button" className="danger" disabled={busy !== null || loading} onClick={() => void act(item, "delete")}>永久删除</button>
-          </div>
+          {!loading && !error ? (
+            <div className="opshelper-archived-count">
+              {query.trim() || agentKey
+                ? `显示 ${filteredConversations.length} / ${conversations.length} 条`
+                : `共 ${conversations.length} 条`}
+            </div>
+          ) : null}
         </div>
-      ))}
+        {loading ? (
+          <div className="opshelper-archived-state" role="status">正在读取归档对话…</div>
+        ) : null}
+        {error ? (
+          <div className="opshelper-archived-error" role="alert">
+            <span>{error}</span>
+            <button type="button" className="button-secondary" onClick={() => void load()}>重试</button>
+          </div>
+        ) : null}
+        {!loading && !error && conversations.length === 0 ? (
+          <div className="opshelper-archived-empty">
+            <span className="opshelper-archived-empty-icon" aria-hidden="true"><IconArchive /></span>
+            <strong>暂无归档对话</strong>
+            <span>在左侧对话菜单中选择「归档」后，对话会出现在这里并可随时恢复。</span>
+          </div>
+        ) : null}
+        {!loading && !error && conversations.length > 0 && filteredConversations.length === 0 ? (
+          <div className="opshelper-archived-empty">
+            <strong>没有符合条件的归档对话</strong>
+            <span>换个关键词或智能体筛选试试。</span>
+            <button type="button" className="button-secondary" onClick={() => { setQuery(""); setAgentKey(""); }}>
+              重置筛选
+            </button>
+          </div>
+        ) : null}
+        {filteredConversations.length > 0 ? (
+          <div className="opshelper-archived-list">
+            {filteredConversations.map((item) => (
+              <div className="opshelper-archived-row" key={item.id}>
+                <div className="opshelper-archived-row-info">
+                  <Link href={`/chat?conversation=${encodeURIComponent(item.id)}&from=archive`}>
+                    {cleanTitle(item.title)}
+                  </Link>
+                  <span>
+                    {agentNames.get(item.leadAgentKey) ?? item.leadAgentKey}
+                    {" · "}
+                    归档于 {formatConversationTimestamp(item.archivedAt ?? item.updatedAt)}
+                  </span>
+                </div>
+                <div className="opshelper-archived-actions">
+                  <button type="button" disabled={busy !== null || loading} onClick={() => void act(item, "restore")}>
+                    {busy === item.id ? "处理中…" : "恢复"}
+                  </button>
+                  <button type="button" className="danger" disabled={busy !== null || loading} onClick={() => void act(item, "delete")}>
+                    永久删除
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }

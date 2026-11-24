@@ -68,6 +68,7 @@ export function LoginForm({
           placeholder="请输入账号"
           type="text"
           required
+          autoFocus
           autoComplete="username"
         />
       </label>

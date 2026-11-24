@@ -15,6 +15,7 @@ import {
   PayloadTooLargeError,
   readTextFile,
   saveUploadedFile,
+  searchDirectory,
   StaleFileError,
   writeTextFile,
 } from "../lib/file-service";
@@ -22,6 +23,7 @@ import { requireSession } from "../lib/session";
 
 const listQuerySchema = z.object({
   path: z.string().optional().default(""),
+  q: z.string().max(200).optional(),
   showHidden: z
     .union([z.literal("0"), z.literal("1"), z.literal("true"), z.literal("false")])
     .optional(),
@@ -167,10 +169,13 @@ function registerScopedFileRoutes(
 
     const showHidden =
       parsed.data.showHidden === "1" || parsed.data.showHidden === "true";
+    const query = parsed.data.q?.trim();
 
     try {
       return {
-        files: await listDirectory(userId, parsed.data.path, showHidden),
+        files: query
+          ? await searchDirectory(userId, parsed.data.path, query, showHidden)
+          : await listDirectory(userId, parsed.data.path, showHidden),
       };
     } catch (error) {
       return handleFileError(error, reply);
