@@ -130,7 +130,9 @@ async function listUserVisibleAgentSummaries(userId: string, canManageAll = fals
   });
   return agents.map((agent) => serializeAgent(
     agent,
-    canManageAll || agent.ownerId === userId || agent.owner?.role === "ADMIN",
+    canManageAll
+      ? (agent.ownerId === null || agent.ownerId === userId || agent.owner?.role === "ADMIN")
+      : agent.ownerId === userId,
   ));
 }
 
@@ -716,6 +718,143 @@ export async function registerAgentRoutes(app: FastifyInstance) {
 
   registerAgentDeleteRoute(app);
 
+  app.get<{ Params: { key: string } }>("/v1/admin/agents/:key/users", async (request, reply) => {
+    if (!await requireAdmin(request, reply)) return;
+    try {
+      const agent = await prisma.agent.findUnique({
+        where: { key: request.params.key },
+        include: {
+          _count: { select: { users: true } },
+          owner: { select: { role: true } },
+        },
+      });
+      if (!agent) throw new AgentServiceError("Agent 不存在", 404);
+      if (agent.ownerId !== null && agent.owner?.role !== "ADMIN") {
+        throw new AgentServiceError("管理员不能管理普通用户创建的私有智能体", 403);
+      }
+      const rows = await prisma.userAgent.findMany({
+        where: { agentId: agent.id },
+        select: { userId: true },
+        orderBy: { userId: "asc" },
+      });
+      return {
+        agent: serializeAgent(agent),
+        assignedUserIds: rows.map((row) => row.userId),
+      };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
+  app.put<{ Params: { key: string } }>("/v1/admin/agents/:key/users", async (request, reply) => {
+    if (!await requireAdmin(request, reply)) return;
+    const parsed = z.object({ userIds: z.array(z.string().min(1)) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: "用户分配清单不正确" });
+    try {
+      const agent = await prisma.agent.findUnique({
+        where: { key: request.params.key },
+        include: {
+          _count: { select: { users: true } },
+          owner: { select: { role: true } },
+        },
+      });
+      if (!agent) throw new AgentServiceError("Agent 不存在", 404);
+      if (agent.ownerId !== null && agent.owner?.role !== "ADMIN") {
+        throw new AgentServiceError("管理员不能管理普通用户创建的私有智能体", 403);
+      }
+      const targetUserIds = Array.from(new Set(parsed.data.userIds)).sort();
+      const targetSet = new Set(targetUserIds);
+      const affectedUsers = await withAgentConfigLocks([agent.id], async () => {
+        const currentRows = await prisma.userAgent.findMany({
+          where: { agentId: agent.id },
+          select: { userId: true },
+        });
+        const currentSet = new Set(currentRows.map((row) => row.userId));
+        const addedUserIds = targetUserIds.filter((userId) => !currentSet.has(userId));
+        const removedUserIds = currentRows
+          .map((row) => row.userId)
+          .filter((userId) => !targetSet.has(userId));
+        if (addedUserIds.length > 0 && (!agent.isEnabled || agent.checkStatus !== "READY")) {
+          throw new AgentServiceError(`Agent「${agent.key}」未启用或检查未通过，无法新增分配`, 409);
+        }
+        const changedUsers = Array.from(new Set([...addedUserIds, ...removedUserIds])).sort();
+        if (changedUsers.length === 0) return [];
+        for (const userId of changedUsers) {
+          await ensureContainerRecordForUser(userId);
+        }
+        await withUserConfigLocks(changedUsers, async () => {
+          const [users, userAgents] = await Promise.all([
+            prisma.user.findMany({
+              where: { id: { in: changedUsers } },
+              select: { id: true, name: true, username: true, isActive: true },
+            }),
+            prisma.userAgent.findMany({
+              where: { userId: { in: changedUsers } },
+              include: { agent: { select: { id: true, mode: true } } },
+            }),
+          ]);
+          const userById = new Map(users.map((item) => [item.id, item]));
+          const assignmentsByUser = new Map<string, Array<{ id: string; mode: string }>>();
+          for (const row of userAgents) {
+            const list = assignmentsByUser.get(row.userId) ?? [];
+            list.push({ id: row.agent.id, mode: row.agent.mode });
+            assignmentsByUser.set(row.userId, list);
+          }
+
+          const nextAssignments = new Map<string, string[]>();
+          for (const userId of changedUsers) {
+            const user = userById.get(userId);
+            if (!user?.isActive) {
+              throw new AgentServiceError("包含不存在或已停用的用户", 404);
+            }
+            const existing = assignmentsByUser.get(userId) ?? [];
+            const next = targetSet.has(userId)
+              ? (existing.some((item) => item.id === agent.id)
+                ? existing
+                : [...existing, { id: agent.id, mode: agent.mode }])
+              : existing.filter((item) => item.id !== agent.id);
+            if (next.length > 0 && next.every((item) => item.mode === "subagent")) {
+              throw new AgentServiceError(
+                `用户「${user.name}（@${user.username}）」至少需要保留一个主智能体或主/子智能体`,
+                400,
+              );
+            }
+            nextAssignments.set(userId, next.map((item) => item.id));
+          }
+
+          for (const userId of changedUsers) {
+            await replaceUserAgentAssignments(userId, nextAssignments.get(userId) ?? []);
+            await pauseInvalidSchedulesForUser(userId);
+          }
+        });
+        return changedUsers;
+      });
+      for (const userId of affectedUsers) {
+        queueUserRuntimeConfiguration(userId);
+      }
+      const [refreshed, rows] = await Promise.all([
+        prisma.agent.findUniqueOrThrow({
+          where: { id: agent.id },
+          include: {
+            _count: { select: { users: true } },
+            owner: { select: { role: true } },
+          },
+        }),
+        prisma.userAgent.findMany({
+          where: { agentId: agent.id },
+          select: { userId: true },
+          orderBy: { userId: "asc" },
+        }),
+      ]);
+      return {
+        agent: serializeAgent(refreshed),
+        assignedUserIds: rows.map((row) => row.userId),
+      };
+    } catch (error) {
+      return handleAgentError(reply, error);
+    }
+  });
+
   app.get<{ Params: { userId: string } }>("/v1/admin/users/:userId/agents", async (request, reply) => {
     if (!await requireAdmin(request, reply)) return;
     try {
@@ -774,7 +913,7 @@ export async function registerAgentRoutes(app: FastifyInstance) {
           );
           await pauseInvalidSchedulesForUser(request.params.userId);
         }));
-      await applyUserRuntimeConfiguration(request.params.userId);
+      queueUserRuntimeConfiguration(request.params.userId);
       return await buildUserAssignmentSnapshot(request.params.userId);
     } catch (error) {
       return handleAgentError(reply, error);

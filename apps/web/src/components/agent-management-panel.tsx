@@ -8,10 +8,12 @@ import type {
   UserAgentAssignmentsSnapshot,
 } from "@opshelper/shared";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 
 import {
   checkAgent,
   createAgent,
+  getAgentUserAssignments,
   getSkillRepositorySkill,
   deleteAgent,
   getAgent,
@@ -20,6 +22,7 @@ import {
   listSkillRepository,
   listAgents,
   reconcileUserAgentAssignments,
+  replaceAgentUserAssignments,
   replaceUserAgentAssignments,
   setAgentEnabled,
   updateAgent,
@@ -61,7 +64,7 @@ import { usePageRefresh } from "@/components/navigation-refresh";
 import { insertEditorIndent } from "@/components/agent-editor-keys";
 
 type Tab = "catalog" | "assignments" | "models" | "instructions";
-type EditorMode = "catalog" | "create" | "edit" | "view";
+type EditorMode = "catalog" | "create" | "edit";
 type UserItem = AdminUsersSnapshot["users"][number];
 
 const NEW_AGENT_TEMPLATE = `---
@@ -273,7 +276,12 @@ export function AgentManagementPanel({
   const [disableTarget, setDisableTarget] = useState<AgentDetail | null>(null);
   const [skillDeleteTarget, setSkillDeleteTarget] = useState<AgentSkillGroup | null>(null);
 
-  const activeUsers = useMemo(() => users.filter((user) => user.isActive), [users]);
+  const activeUsers = useMemo(
+    () => users
+      .filter((user) => user.isActive)
+      .sort((a, b) => a.username.localeCompare(b.username, undefined, { sensitivity: "base" })),
+    [users],
+  );
   const [userQuery, setUserQuery] = useState("");
   const filteredActiveUsers = useMemo(() => {
     const keyword = userQuery.trim().toLowerCase();
@@ -286,6 +294,29 @@ export function AgentManagementPanel({
   const [assignment, setAssignment] = useState<UserAgentAssignmentsSnapshot | null>(null);
   const [draftAgentIds, setDraftAgentIds] = useState<string[]>([]);
   const [assignmentBusy, setAssignmentBusy] = useState(false);
+
+  const [assignAgentTarget, setAssignAgentTarget] = useState<AgentSummary | null>(null);
+  const [assignInitialUserIds, setAssignInitialUserIds] = useState<string[]>([]);
+  const [assignDraftUserIds, setAssignDraftUserIds] = useState<string[]>([]);
+  const [assignUserQuery, setAssignUserQuery] = useState("");
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [assignSaving, setAssignSaving] = useState(false);
+  const assignRequestRef = useRef(0);
+  const filteredAssignUsers = useMemo(() => {
+    const keyword = assignUserQuery.trim().toLowerCase();
+    if (!keyword) return activeUsers;
+    return activeUsers.filter((user) =>
+      user.name.toLowerCase().includes(keyword) || user.username.toLowerCase().includes(keyword),
+    );
+  }, [activeUsers, assignUserQuery]);
+  const assignDirty = useMemo(() => {
+    const a = [...assignDraftUserIds].sort().join("|");
+    const b = [...assignInitialUserIds].sort().join("|");
+    return a !== b;
+  }, [assignDraftUserIds, assignInitialUserIds]);
+  const assignCanAdd = Boolean(
+    assignAgentTarget && assignAgentTarget.isEnabled && assignAgentTarget.checkStatus === "ready",
+  );
 
   const editorDirty = useMemo(() => {
     if (editorMode === "create") {
@@ -372,6 +403,14 @@ export function AgentManagementPanel({
       [agent.key, agent.displayName, agent.description].some((value) => value.toLowerCase().includes(needle)),
     );
   }, [agents, query]);
+  const privateAgents = useMemo(
+    () => filteredAgents.filter((agent) => agent.canManage),
+    [filteredAgents],
+  );
+  const assignedAgents = useMemo(
+    () => filteredAgents.filter((agent) => !agent.canManage),
+    [filteredAgents],
+  );
   const filteredRepositorySkills = useMemo(() => {
     const needle = repositoryQuery.trim().toLowerCase();
     if (!needle) return repositorySkills;
@@ -412,7 +451,7 @@ export function AgentManagementPanel({
     if (nextKey && snapshot.agents.some((agent) => agent.key === nextKey)) {
       setSelectedKey(nextKey);
     } else {
-      setSelectedKey(snapshot.agents[0]?.key ?? null);
+      setSelectedKey(null);
     }
   }
 
@@ -470,6 +509,27 @@ export function AgentManagementPanel({
     return () => { active = false; };
   }, [adminScope, selectedUserId, tab]);
 
+  const assignmentStatus = assignment?.configuration.status;
+  useEffect(() => {
+    if (!adminScope || tab !== "assignments" || !selectedUserId) return;
+    if (assignmentStatus !== "draining" && assignmentStatus !== "revoking" && assignmentStatus !== "applying") {
+      return;
+    }
+    let active = true;
+    const timer = window.setInterval(() => {
+      void getUserAgentAssignments(selectedUserId)
+        .then((snapshot) => {
+          if (!active) return;
+          setAssignment(snapshot);
+        })
+        .catch(() => undefined);
+    }, 2000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [adminScope, assignmentStatus, selectedUserId, tab]);
+
   function beginCreate() {
     automaticCreateRef.current = false;
     setEditorMode("create");
@@ -484,12 +544,13 @@ export function AgentManagementPanel({
   }
 
   function selectAgent(key: string) {
+    const agent = agents.find((item) => item.key === key);
+    if (!adminScope && !agent?.canManage) return;
     rememberCatalogScroll();
     setSkillRepositoryOpen(false);
     setDetail(null);
     setSelectedKey(key);
-    const agent = agents.find((item) => item.key === key);
-    setEditorMode(adminScope || agent?.canManage ? "edit" : "view");
+    setEditorMode("edit");
   }
 
   function closeAgentDetail() {
@@ -794,7 +855,7 @@ export function AgentManagementPanel({
       );
       setAssignment(snapshot);
       setDraftAgentIds(snapshot.assignedAgentIds);
-      await refreshAgents();
+      await refreshCatalog();
       toast.success(snapshot.configuration.status === "ready" ? "分配已生效" : "分配已保存，运行环境正在处理");
     } catch (error) {
       toast.error(errorMessage(error, "保存分配失败"));
@@ -805,6 +866,73 @@ export function AgentManagementPanel({
       }
     } finally {
       setAssignmentBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!assignAgentTarget) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !assignSaving) {
+        event.preventDefault();
+        setAssignAgentTarget(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [assignAgentTarget, assignSaving]);
+
+  async function openAgentAssignDialog(agent: AgentSummary) {
+    const requestId = ++assignRequestRef.current;
+    setAssignAgentTarget(agent);
+    setAssignUserQuery("");
+    setAssignInitialUserIds([]);
+    setAssignDraftUserIds([]);
+    setAssignLoading(true);
+    try {
+      const snapshot = await getAgentUserAssignments(agent.key);
+      if (requestId !== assignRequestRef.current) return;
+      setAssignAgentTarget(snapshot.agent);
+      setAssignInitialUserIds(snapshot.assignedUserIds);
+      setAssignDraftUserIds(snapshot.assignedUserIds);
+    } catch (error) {
+      if (requestId !== assignRequestRef.current) return;
+      toast.error(errorMessage(error, "读取智能体分配用户失败"));
+      setAssignAgentTarget(null);
+    } finally {
+      if (requestId === assignRequestRef.current) setAssignLoading(false);
+    }
+  }
+
+  function closeAgentAssignDialog() {
+    if (assignSaving) return;
+    assignRequestRef.current += 1;
+    setAssignAgentTarget(null);
+    setAssignLoading(false);
+  }
+
+  function toggleAssignUser(userId: string) {
+    setAssignDraftUserIds((current) =>
+      current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId],
+    );
+  }
+
+  async function saveAgentUserAssignments() {
+    if (!assignAgentTarget || assignSaving || assignLoading) return;
+    setAssignSaving(true);
+    try {
+      const snapshot = await replaceAgentUserAssignments(assignAgentTarget.key, assignDraftUserIds);
+      setAgents((current) =>
+        current.map((item) => (item.id === snapshot.agent.id ? snapshot.agent : item)),
+      );
+      setAssignInitialUserIds(snapshot.assignedUserIds);
+      setAssignDraftUserIds(snapshot.assignedUserIds);
+      setAssignAgentTarget(null);
+      toast.success(`已更新「${snapshot.agent.displayName}」的用户分配（当前 ${snapshot.agent.assignmentCount} 人获配）`);
+      void refreshCatalog().catch(() => undefined);
+    } catch (error) {
+      toast.error(errorMessage(error, "保存用户分配失败"));
+    } finally {
+      setAssignSaving(false);
     }
   }
 
@@ -880,7 +1008,18 @@ export function AgentManagementPanel({
             className={tab === "catalog" ? "active" : ""}
             type="button"
             onClick={() => {
-              setTab("catalog");
+              if (tab === "catalog") {
+                if (selectedKey !== null || editorMode !== "catalog") {
+                  void requestCloseAgentDetail();
+                  return;
+                }
+              } else {
+                setTab("catalog");
+                if (!editorDirty && (selectedKey !== null || editorMode !== "catalog")) {
+                  closeAgentDetail();
+                  return;
+                }
+              }
               void refreshCatalog().catch((error) => toast.error(errorMessage(error, "刷新智能体目录失败")));
             }}
           >
@@ -951,62 +1090,202 @@ export function AgentManagementPanel({
               </div>
               <button className="button" type="button" onClick={beginCreate}>新建智能体</button>
             </div>
-            <div className="agent-catalog-list">
-              {filteredAgents.map((agent) => {
-                const enabled = agentEnabledView(agent.isEnabled);
-                const check = agentCheckView(agent.checkStatus);
-                return (
-                  <button
-                    key={agent.id}
-                    className={`agent-catalog-card${selectedKey === agent.key ? " selected" : ""}`}
-                    type="button"
-                    onClick={() => selectAgent(agent.key)}
-                  >
-                    <span className="agent-catalog-card-head">
-                      <AgentMark id={agent.key} name={agent.displayName} description={agent.description} />
-                      <strong className="agent-catalog-card-name">{agent.displayName}</strong>
-                    </span>
-                    <span className="agent-catalog-card-desc">
-                      {agent.description || "未填写职责说明"}
-                    </span>
-                    {/* 技术标识排在中文职责之后：先看懂它负责什么，再核对它是哪个 key。 */}
-                    <code className="agent-catalog-card-key" title={agent.key}>{agent.key}</code>
-                    <span className="agent-catalog-card-foot">
-                      <span className="agent-catalog-states">
-                        <span className="agent-catalog-state neutral">{agentModeView(agent.mode).label}</span>
-                        <span className={`agent-catalog-state ${enabled.tone}`}>
-                          <span className="agent-catalog-dot" aria-hidden="true" />
-                          {enabled.label}
-                        </span>
-                        <span className={`agent-catalog-state ${check.tone}`}>
-                          {check.tone === "positive" ? <IconCheck /> : null}
-                          {check.tone === "danger" ? <IconAlert /> : null}
-                          {check.label}
-                        </span>
+            {adminScope ? (
+              <div className="agent-catalog-list">
+                {filteredAgents.map((agent) => {
+                  const enabled = agentEnabledView(agent.isEnabled);
+                  const check = agentCheckView(agent.checkStatus);
+                  return (
+                    <div
+                      key={agent.id}
+                      role="button"
+                      tabIndex={0}
+                      className={`agent-catalog-card${selectedKey === agent.key ? " selected" : ""}`}
+                      onClick={() => selectAgent(agent.key)}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          selectAgent(agent.key);
+                        }
+                      }}
+                    >
+                      <span className="agent-catalog-card-head">
+                        <AgentMark id={agent.key} name={agent.displayName} description={agent.description} />
+                        <strong className="agent-catalog-card-name">{agent.displayName}</strong>
                       </span>
-                      <span className="agent-catalog-card-count">{agentAssignmentLabel(agent.assignmentCount)}</span>
-                    </span>
-                  </button>
-                );
-              })}
-              {!filteredAgents.length ? (
+                      <span className="agent-catalog-card-desc">
+                        {agent.description || "未填写职责说明"}
+                      </span>
+                      {/* 技术标识排在中文职责之后：先看懂它负责什么，再核对它是哪个 key。 */}
+                      <code className="agent-catalog-card-key" title={agent.key}>{agent.key}</code>
+                      <span className="agent-catalog-card-foot">
+                        <span className="agent-catalog-states">
+                          <span className="agent-catalog-state neutral">{agentModeView(agent.mode).label}</span>
+                          <span className={`agent-catalog-state ${enabled.tone}`}>
+                            <span className="agent-catalog-dot" aria-hidden="true" />
+                            {enabled.label}
+                          </span>
+                          <span className={`agent-catalog-state ${check.tone}`}>
+                            {check.tone === "positive" ? <IconCheck /> : null}
+                            {check.tone === "danger" ? <IconAlert /> : null}
+                            {check.label}
+                          </span>
+                        </span>
+                        <button
+                          className="agent-catalog-assign-btn"
+                          type="button"
+                          title={`分配「${agent.displayName}」给用户`}
+                          aria-label={`分配 ${agent.displayName}，当前 ${agentAssignmentLabel(agent.assignmentCount)}`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void openAgentAssignDialog(agent);
+                          }}
+                        >
+                          {agentAssignmentLabel(agent.assignmentCount)}
+                        </button>
+                      </span>
+                    </div>
+                  );
+                })}
+                {!filteredAgents.length ? (
+                  <div className="agent-catalog-empty">
+                    {searching ? (
+                      <>
+                        <strong>没有找到匹配的智能体</strong>
+                        <span>换个名称或标识试试，也可以直接新建</span>
+                        <button className="button-secondary" type="button" onClick={() => setQuery("")}>清除搜索</button>
+                      </>
+                    ) : (
+                      <>
+                        <strong>还没有智能体</strong>
+                        <span>创建一个智能体，配置职责后再分配给用户</span>
+                        <button className="button" type="button" onClick={beginCreate}>新建智能体</button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ) : searching && !filteredAgents.length ? (
+              <div className="agent-catalog-list">
                 <div className="agent-catalog-empty">
-                  {searching ? (
-                    <>
-                      <strong>没有找到匹配的智能体</strong>
-                      <span>换个名称或标识试试，也可以直接新建</span>
-                      <button className="button-secondary" type="button" onClick={() => setQuery("")}>清除搜索</button>
-                    </>
-                  ) : (
-                    <>
-                      <strong>还没有智能体</strong>
-                      <span>创建一个智能体，配置职责后再分配给用户</span>
-                      <button className="button" type="button" onClick={beginCreate}>新建智能体</button>
-                    </>
-                  )}
+                  <strong>没有找到匹配的智能体</strong>
+                  <span>换个名称或标识试试，也可以直接新建</span>
+                  <button className="button-secondary" type="button" onClick={() => setQuery("")}>清除搜索</button>
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : (
+              <div className="agent-catalog-sections">
+                {(!searching || privateAgents.length > 0) ? (
+                  <div className="agent-catalog-section" aria-label="我的私有智能体">
+                    <div className="agent-catalog-section-head">
+                      <div className="agent-catalog-section-title-group">
+                        <h3 className="agent-catalog-section-title">我的私有智能体</h3>
+                        <span className="agent-catalog-section-count">{privateAgents.length} 个</span>
+                      </div>
+                      <p className="agent-catalog-section-desc">由你创建，可随时编辑配置、启停或删除</p>
+                    </div>
+                    <div className="agent-catalog-list">
+                      {privateAgents.map((agent) => {
+                        const enabled = agentEnabledView(agent.isEnabled);
+                        const check = agentCheckView(agent.checkStatus);
+                        return (
+                          <button
+                            key={agent.id}
+                            className={`agent-catalog-card${selectedKey === agent.key ? " selected" : ""}`}
+                            type="button"
+                            onClick={() => selectAgent(agent.key)}
+                          >
+                            <span className="agent-catalog-card-head">
+                              <AgentMark id={agent.key} name={agent.displayName} description={agent.description} />
+                              <strong className="agent-catalog-card-name">{agent.displayName}</strong>
+                            </span>
+                            <span className="agent-catalog-card-desc">
+                              {agent.description || "未填写职责说明"}
+                            </span>
+                            <code className="agent-catalog-card-key" title={agent.key}>{agent.key}</code>
+                            <span className="agent-catalog-card-foot">
+                              <span className="agent-catalog-states">
+                                <span className="agent-catalog-state neutral">{agentModeView(agent.mode).label}</span>
+                                <span className={`agent-catalog-state ${enabled.tone}`}>
+                                  <span className="agent-catalog-dot" aria-hidden="true" />
+                                  {enabled.label}
+                                </span>
+                                <span className={`agent-catalog-state ${check.tone}`}>
+                                  {check.tone === "positive" ? <IconCheck /> : null}
+                                  {check.tone === "danger" ? <IconAlert /> : null}
+                                  {check.label}
+                                </span>
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {!privateAgents.length ? (
+                        <div className="agent-catalog-empty agent-catalog-section-empty">
+                          <strong>还没有私有智能体</strong>
+                          <span>创建一个专属智能体，配置职责、技能与工具</span>
+                          <button className="button" type="button" onClick={beginCreate}>新建智能体</button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {(!searching || assignedAgents.length > 0) ? (
+                  <div className="agent-catalog-section" aria-label="管理员分配的智能体">
+                    <div className="agent-catalog-section-head">
+                      <div className="agent-catalog-section-title-group">
+                        <h3 className="agent-catalog-section-title">管理员分配的智能体</h3>
+                        <span className="agent-catalog-section-count">{assignedAgents.length} 个</span>
+                      </div>
+                      <p className="agent-catalog-section-desc">由管理员统一维护并分配给你使用</p>
+                    </div>
+                    <div className="agent-catalog-list">
+                      {assignedAgents.map((agent) => {
+                        const enabled = agentEnabledView(agent.isEnabled);
+                        const check = agentCheckView(agent.checkStatus);
+                        return (
+                          <div
+                            key={agent.id}
+                            className="agent-catalog-card agent-catalog-card-readonly"
+                          >
+                            <span className="agent-catalog-card-head">
+                              <AgentMark id={agent.key} name={agent.displayName} description={agent.description} />
+                              <strong className="agent-catalog-card-name">{agent.displayName}</strong>
+                            </span>
+                            <span className="agent-catalog-card-desc">
+                              {agent.description || "未填写职责说明"}
+                            </span>
+                            <code className="agent-catalog-card-key" title={agent.key}>{agent.key}</code>
+                            <span className="agent-catalog-card-foot">
+                              <span className="agent-catalog-states">
+                                <span className="agent-catalog-state neutral">{agentModeView(agent.mode).label}</span>
+                                <span className={`agent-catalog-state ${enabled.tone}`}>
+                                  <span className="agent-catalog-dot" aria-hidden="true" />
+                                  {enabled.label}
+                                </span>
+                                <span className={`agent-catalog-state ${check.tone}`}>
+                                  {check.tone === "positive" ? <IconCheck /> : null}
+                                  {check.tone === "danger" ? <IconAlert /> : null}
+                                  {check.label}
+                                </span>
+                              </span>
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {!assignedAgents.length ? (
+                        <div className="agent-catalog-empty agent-catalog-section-empty">
+                          <strong>暂未分配团队智能体</strong>
+                          <span>如需使用团队共用智能体，请联系管理员分配</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
           </section>
 
           <section className="agent-editor panel" aria-label="智能体编辑器">
@@ -1016,7 +1295,7 @@ export function AgentManagementPanel({
                 <div className="panel-header agent-editor-header">
                   <div className="agent-editor-heading">
                     <div className="panel-title agent-editor-title-row">
-                      <span>{editorMode === "create" ? "新建智能体" : editorMode === "edit" ? `编辑 ${detail?.displayName ?? "智能体"}` : detail?.displayName}</span>
+                      <span>{editorMode === "create" ? "新建智能体" : `编辑 ${detail?.displayName ?? "智能体"}`}</span>
                       {editorDirty ? <span className="agent-dirty-badge">未保存</span> : null}
                     </div>
                     {detail ? <div className="muted mono" title={detail.contentHash ? `内容 hash：${detail.contentHash}` : undefined}>{detail.key}</div> : <div className="muted">{adminScope ? "配置基本信息、能力包与外部工具，保存检查通过后再分配给用户。" : "配置基本信息、能力包与外部工具，保存后系统会自动分配给你。"}</div>}
@@ -1026,20 +1305,6 @@ export function AgentManagementPanel({
 
                 {detail?.checkError ? <div className="agent-alert agent-alert-error"><strong>依赖检查失败</strong><span>{detail.checkError}</span></div> : null}
 
-                {editorMode === "view" && detail ? (
-                  <>
-                    <p>{detail.description}</p>
-                    <dl className="agent-facts">
-                      <div><dt>目录</dt><dd className="mono">data/agents/{detail.key}</dd></div>
-                      <div><dt>内容 hash</dt><dd className="mono" title={detail.contentHash ?? undefined}>{detail.contentHash ? detail.contentHash.slice(0, 10) : "尚未检查"}</dd></div>
-                      <div><dt>角色模式</dt><dd>{agentModeView(detail.mode).label}</dd></div>
-                      <div><dt>检查时间</dt><dd>{detail.checkedAt ? new Date(detail.checkedAt).toLocaleString("zh-CN") : "尚未检查"}</dd></div>
-                      <div><dt>源文件</dt><dd>{Object.keys(detail.files).length + Object.keys(detail.binaryFiles ?? {}).length} 个</dd></div>
-                      <div><dt>Skill</dt><dd>{new Set(Object.keys({ ...detail.files, ...(detail.binaryFiles ?? {}) }).filter((name) => name.startsWith("skills/")).map((name) => name.split("/")[1])).size} 个</dd></div>
-                      <div><dt>MCP</dt><dd>{detail.files["mcp.json"] ? "已配置" : "未配置"}</dd></div>
-                    </dl>
-                  </>
-                ) : (
                 <div className="stack">
                     {editorMode === "create" ? (
                       <label className="field"><span className="field-label">目录 key</span><input className="field-input mono" value={agentKey} onChange={(event) => setAgentKey(event.target.value)} placeholder="network-ops" /></label>
@@ -1332,7 +1597,6 @@ export function AgentManagementPanel({
                   </>
                 )}
               </div>
-                )}
               </>
             ) : (
               <div className="um-detail-placeholder agent-detail-loading">
@@ -1460,6 +1724,161 @@ export function AgentManagementPanel({
         onCancel={() => setDisableTarget(null)}
         onConfirm={() => { if (disableTarget) void changeEnabled(disableTarget, false); }}
       />
+
+      {adminScope && assignAgentTarget && typeof document !== "undefined" ? createPortal(
+        <div
+          className="file-dialog-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeAgentAssignDialog();
+          }}
+        >
+          <div
+            className="file-dialog agent-assign-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-busy={assignLoading || assignSaving}
+            aria-labelledby="agent-assign-dialog-title"
+          >
+            <div className="agent-assign-dialog-head">
+              <div>
+                <div className="file-dialog-title" id="agent-assign-dialog-title">
+                  分配智能体 · {assignAgentTarget.displayName}
+                </div>
+                <div className="muted agent-assign-dialog-sub">
+                  选择可以使用 <span className="mono">{assignAgentTarget.key}</span> 的启用用户
+                </div>
+              </div>
+              <button
+                type="button"
+                className="agent-assign-dialog-close"
+                aria-label="关闭"
+                disabled={assignSaving}
+                onClick={closeAgentAssignDialog}
+              >
+                <IconClose />
+              </button>
+            </div>
+
+            {!assignCanAdd ? (
+              <div className="agent-alert agent-alert-error" style={{ marginBottom: 12 }}>
+                <strong>当前不可新增分配</strong>
+                <span>该智能体尚未启用或检查未通过，仅可取消已有用户的分配。</span>
+              </div>
+            ) : null}
+
+            <div className="agent-assign-dialog-toolbar">
+              <div className="agent-catalog-search">
+                <IconSearch />
+                <input
+                  type="search"
+                  className="field-input"
+                  value={assignUserQuery}
+                  onChange={(event) => setAssignUserQuery(event.target.value)}
+                  placeholder="搜索姓名或用户名..."
+                  aria-label="搜索用户"
+                  disabled={assignLoading || assignSaving}
+                />
+                {assignUserQuery ? (
+                  <button
+                    type="button"
+                    className="agent-catalog-search-clear"
+                    aria-label="清除搜索"
+                    onClick={() => setAssignUserQuery("")}
+                  >
+                    <IconClose />
+                  </button>
+                ) : null}
+              </div>
+              <div className="agent-assign-dialog-quick">
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={assignLoading || assignSaving || !assignCanAdd || !filteredAssignUsers.length}
+                  onClick={() => {
+                    const visibleIds = filteredAssignUsers.map((user) => user.id);
+                    setAssignDraftUserIds((current) => Array.from(new Set([...current, ...visibleIds])));
+                  }}
+                >
+                  全选
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={assignLoading || assignSaving || !assignDraftUserIds.length}
+                  onClick={() => {
+                    const visibleSet = new Set(filteredAssignUsers.map((user) => user.id));
+                    setAssignDraftUserIds((current) => current.filter((id) => !visibleSet.has(id)));
+                  }}
+                >
+                  取消全选
+                </button>
+              </div>
+            </div>
+
+            <div className="agent-assign-dialog-list">
+              {assignLoading ? (
+                <div className="um-empty">正在读取当前分配情况…</div>
+              ) : !activeUsers.length ? (
+                <div className="um-empty">没有可分配的启用用户。</div>
+              ) : !filteredAssignUsers.length ? (
+                <div className="um-empty">没有匹配的用户。</div>
+              ) : (
+                filteredAssignUsers.map((user) => {
+                  const checked = assignDraftUserIds.includes(user.id);
+                  const originallyAssigned = assignInitialUserIds.includes(user.id);
+                  const disabled = assignSaving || (!checked && !originallyAssigned && !assignCanAdd);
+                  return (
+                    <label
+                      key={user.id}
+                      className={`agent-assign-user-item${checked ? " checked" : ""}${disabled ? " disabled" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => toggleAssignUser(user.id)}
+                      />
+                      <span className="agent-assign-user-info">
+                        <strong>{user.name}</strong>
+                        <span className="muted">@{user.username}</span>
+                      </span>
+                      {user.role === "admin" ? (
+                        <span className="agent-assign-user-role">管理员</span>
+                      ) : null}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="agent-assign-dialog-foot">
+              <span className="muted">
+                已选 {assignDraftUserIds.length} / {activeUsers.length} 位用户
+              </span>
+              <div className="inline-actions">
+                <button
+                  className="button-secondary"
+                  type="button"
+                  disabled={assignSaving}
+                  onClick={closeAgentAssignDialog}
+                >
+                  取消
+                </button>
+                <button
+                  className="button"
+                  type="button"
+                  disabled={assignLoading || assignSaving || !assignDirty}
+                  onClick={() => { void saveAgentUserAssignments(); }}
+                >
+                  {assignSaving ? "保存中…" : "保存分配"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }

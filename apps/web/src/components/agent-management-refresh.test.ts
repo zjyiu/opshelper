@@ -88,11 +88,11 @@ test("selecting a manageable agent opens the editor directly", () => {
   assert.equal(selectedAgentMode([{ key: "agent", canManage: false }], true).mode, "edit");
 });
 
-test("selecting an assigned agent without edit access keeps its read-only view", () => {
+test("selecting an assigned agent without edit access does not open a detail view", () => {
   const selected = selectedAgentMode([{ key: "agent", canManage: false }], false);
-  assert.equal(selected.mode, "view");
-  assert.equal(selected.selectedKey, "agent");
-  assert.equal(selected.detail, null);
+  assert.equal(selected.mode, "");
+  assert.equal(selected.selectedKey, "");
+  assert.deepEqual(selected.detail, {});
 });
 
 test("a delayed catalog request cannot overwrite a newer result", async () => {
@@ -105,4 +105,32 @@ test("a delayed catalog request cannot overwrite a newer result", async () => {
   finish({ agents: ["old"] });
   await first;
   assert.deepEqual(catalog.agents(), ["new"]);
+});
+
+test("refreshAgents keeps catalog view unselected when no agent is selected", async () => {
+  let declaration = "";
+  function visit(node: ts.Node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "refreshAgents") {
+      declaration = node.getText(source);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.ok(declaration);
+  let selectedKey: string | null = null;
+  let agents: Array<{ key: string }> = [];
+  const context = vm.createContext({
+    catalogRefreshRef: { current: 0 },
+    listAgents: async () => ({ agents: [{ key: "first" }, { key: "second" }] }),
+    scope: "admin",
+    selectedKey,
+    setAgents: (value: Array<{ key: string }>) => { agents = value; },
+    setSelectedKey: (value: string | null) => { selectedKey = value; },
+  });
+  vm.runInContext(ts.transpileModule(`${declaration}\nglobalThis.refreshAgents = refreshAgents;`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText, context);
+  await (context.refreshAgents as (preferredKey?: string | null) => Promise<void>)();
+  assert.deepEqual(agents.map((item) => item.key), ["first", "second"]);
+  assert.equal(selectedKey, null);
 });

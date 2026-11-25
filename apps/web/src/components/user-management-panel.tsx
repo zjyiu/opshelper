@@ -23,7 +23,7 @@ const PAGE_SIZE = 20;
 function compareUsers(a: UserItem, b: UserItem, field: SortField, dir: SortDir) {
   let cmp = 0;
   if (field === "username") {
-    cmp = a.username.localeCompare(b.username);
+    cmp = a.username.localeCompare(b.username, undefined, { sensitivity: "base" });
   } else if (field === "createdAt") {
     cmp = a.createdAt.localeCompare(b.createdAt);
   } else if (field === "status") {
@@ -49,8 +49,8 @@ export function UserManagementPanel({
     initialUsers[0]?.id ?? null,
   );
   const [mode, setMode] = useState<PanelMode>("view");
-  const [sortField, setSortField] = useState<SortField>("createdAt");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [sortField, setSortField] = useState<SortField>("username");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(1);
   const isInitialQuerySync = useRef(true);
   const refreshSequence = useRef(0);

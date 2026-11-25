@@ -13,6 +13,7 @@ import type {
   UpdateUserRequest,
   UserResponse,
   UserAgentAssignmentsSnapshot,
+  AgentUserAssignmentsSnapshot,
   ConversationsResponse,
   ConversationSearchResult,
   ConversationSnapshot,
@@ -312,6 +313,24 @@ export async function reconcileUserAgentAssignments(userId: string) {
   return fetchJson<UserAgentAssignmentsSnapshot>(
     `/v1/admin/users/${encodeURIComponent(userId)}/agents/reconcile`,
     { method: "POST" },
+  );
+}
+
+export async function getAgentUserAssignments(key: string) {
+  return fetchJson<AgentUserAssignmentsSnapshot>(
+    `/v1/admin/agents/${encodeURIComponent(key)}/users`,
+    { cache: "no-store" },
+  );
+}
+
+export async function replaceAgentUserAssignments(key: string, userIds: string[]) {
+  return fetchJson<AgentUserAssignmentsSnapshot>(
+    `/v1/admin/agents/${encodeURIComponent(key)}/users`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userIds }),
+    },
   );
 }
 

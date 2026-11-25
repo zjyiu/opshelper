@@ -123,7 +123,7 @@ export async function getAdminUsersSnapshot(
     where: buildUserSearchWhere(query),
     orderBy: [
       {
-        createdAt: "desc",
+        username: "asc",
       },
     ],
   });

@@ -2387,6 +2387,57 @@
   overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none;
 }
 
+/* 普通用户智能体目录分组：私有智能体与管理员分配智能体分开展示 */
+.opshelper-page-body .agent-catalog-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.opshelper-page-body .agent-catalog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.opshelper-page-body .agent-catalog-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--g-line);
+}
+.opshelper-page-body .agent-catalog-section-title-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.opshelper-page-body .agent-catalog-section-title {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 600;
+  color: var(--g-text);
+}
+.opshelper-page-body .agent-catalog-section-count {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--g-surface-2);
+  color: var(--g-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.opshelper-page-body .agent-catalog-section-desc {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--g-muted);
+}
+.opshelper-page-body .agent-catalog-section-empty {
+  padding: 28px 20px;
+}
+
 /* 目录标题区 */
 .opshelper-page-body .agent-catalog-heading { align-items: flex-start; margin-bottom: 16px; }
 .opshelper-page-body .agent-catalog-heading h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
@@ -2400,6 +2451,8 @@
 }
 .opshelper-page-body .agent-catalog-search .field-input { width: 100%; padding-left: 34px; padding-right: 34px; }
 .opshelper-page-body .agent-catalog-search .field-input::-webkit-search-cancel-button { display: none; }
+.opshelper-page-body .agent-user-search .field-input { width: 100%; padding-left: 34px; padding-right: 32px; }
+.opshelper-page-body .admin-container-search .field-input { width: 100%; padding-left: 34px; padding-right: 32px; }
 .opshelper-page-body .agent-catalog-search-clear {
   position: absolute; right: 6px; width: 24px; height: 24px;
   display: grid; place-items: center; padding: 0;
@@ -2422,6 +2475,14 @@
   border-color: transparent; background: #fff;
   transform: translateY(-2px);
   box-shadow: var(--g-shadow-card-hover);
+}
+.opshelper-page-body .agent-admin-list-mode .agent-catalog-card-readonly {
+  cursor: default;
+}
+.opshelper-page-body .agent-admin-list-mode .agent-catalog-card-readonly:hover {
+  background: var(--g-bg);
+  transform: none;
+  box-shadow: var(--g-shadow);
 }
 .opshelper-page-body .agent-admin-list-mode .agent-catalog-card.selected {
   border-color: transparent; background: var(--g-accent-soft);
@@ -2459,6 +2520,193 @@
 }
 .opshelper-page-body .agent-catalog-state.positive .agent-catalog-dot { background: var(--g-accent); }
 .opshelper-page-body .agent-catalog-card-count { margin-left: auto; color: var(--g-muted); font-size: 12.5px; white-space: nowrap; }
+.opshelper-page-body .agent-catalog-assign-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--g-line);
+  border-radius: 999px;
+  background: var(--g-surface-2);
+  color: var(--g-text-2, var(--g-text));
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.opshelper-page-body .agent-catalog-assign-btn:hover {
+  background: var(--g-accent-soft);
+  border-color: color-mix(in srgb, var(--g-accent) 35%, transparent);
+  color: var(--g-accent-dark);
+}
+.opshelper-page-body .agent-catalog-assign-btn:focus-visible {
+  outline: 2px solid var(--g-accent);
+  outline-offset: 2px;
+}
+
+/* 智能体快速分配用户弹窗 */
+.agent-assign-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(82vh, 660px);
+  display: flex;
+  flex-direction: column;
+}
+.agent-assign-dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.agent-assign-dialog-sub {
+  margin-top: 4px;
+  font-size: 13px;
+}
+.agent-assign-dialog-close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--g-muted);
+  cursor: pointer;
+}
+.agent-assign-dialog-close:hover:not(:disabled) {
+  background: var(--g-surface-2);
+  color: var(--g-text);
+}
+.agent-assign-dialog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.agent-assign-dialog-toolbar .agent-catalog-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.agent-assign-dialog-toolbar .agent-catalog-search > .opshelper-icon {
+  position: absolute;
+  left: 11px;
+  width: 15px;
+  height: 15px;
+  color: var(--g-muted);
+  pointer-events: none;
+}
+.agent-assign-dialog-toolbar .agent-catalog-search .field-input {
+  width: 100%;
+  padding-left: 34px;
+  padding-right: 32px;
+}
+.agent-assign-dialog-toolbar .agent-catalog-search .field-input::-webkit-search-cancel-button {
+  display: none;
+}
+.agent-assign-dialog-toolbar .agent-catalog-search-clear {
+  position: absolute;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--g-muted);
+  cursor: pointer;
+}
+.agent-assign-dialog-toolbar .agent-catalog-search-clear:hover {
+  background: var(--g-surface-2);
+  color: var(--g-text);
+}
+.agent-assign-dialog-toolbar .agent-catalog-search-clear .opshelper-icon {
+  width: 14px;
+  height: 14px;
+}
+.agent-assign-dialog-quick {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+.agent-assign-dialog-list {
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: 360px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+}
+.agent-assign-user-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--g-line);
+  border-radius: 10px;
+  background: var(--g-bg);
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.agent-assign-user-item:hover:not(.disabled) {
+  background: var(--g-surface-2);
+}
+.agent-assign-user-item.checked {
+  background: var(--g-accent-soft);
+  border-color: color-mix(in srgb, var(--g-accent) 32%, transparent);
+}
+.agent-assign-user-item.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.agent-assign-user-item input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--g-accent);
+}
+.agent-assign-user-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 13.5px;
+}
+.agent-assign-user-info strong {
+  font-weight: 600;
+  color: var(--g-text);
+}
+.agent-assign-user-role {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--g-surface-2);
+  color: var(--g-muted);
+  font-size: 11.5px;
+}
+.agent-assign-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--g-line);
+  font-size: 13px;
+}
 
 /* 空状态：没搜索时是“还没有智能体”，搜索时是“没有匹配”。 */
 .opshelper-page-body .agent-catalog-empty {

@@ -834,12 +834,7 @@ export function ChatApp({ directory, defaultModel, models = [] }: ChatAppProps) 
                 name={activeAssistant.name}
                 description={activeAssistant.description}
               />
-              <span className="opshelper-chat-agent-copy">
-                <span className="opshelper-chat-agent-name">{activeAssistant.name}</span>
-                {activeAssistant.description ? (
-                  <span className="opshelper-chat-agent-desc">{activeAssistant.description}</span>
-                ) : null}
-              </span>
+              <span className="opshelper-chat-agent-name">{activeAssistant.name}</span>
             </div>
           </div>
           {activeConversationId ? (

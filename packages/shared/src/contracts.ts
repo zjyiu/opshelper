@@ -227,6 +227,11 @@ export interface UserAgentAssignmentsSnapshot {
   configuration: AgentConfigurationState;
 }
 
+export interface AgentUserAssignmentsSnapshot {
+  agent: AgentSummary;
+  assignedUserIds: string[];
+}
+
 export interface AgentDirectoryRequest {
   key: string;
   files: Record<string, string>;
