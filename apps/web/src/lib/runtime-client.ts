@@ -1,25 +1,25 @@
 /**
- * Defensive shapes used only to parse sanitized OpenCode data returned through
+ * Defensive shapes used only to parse sanitized runtime data returned through
  * the formal Conversation API. The browser has no direct runtime client.
  */
-export interface OpencodeSession {
+export interface RuntimeSession {
   id: string;
   title?: string;
   parentID?: string;
   [key: string]: unknown;
 }
 
-export interface OpencodeAgentConfig {
+export interface RuntimeAgentConfig {
   description?: string;
   [key: string]: unknown;
 }
 
-export interface OpencodeConfig {
-  agent?: Record<string, OpencodeAgentConfig>;
+export interface RuntimeConfig {
+  agent?: Record<string, RuntimeAgentConfig>;
   [key: string]: unknown;
 }
 
-export interface OpencodeAgentInfo {
+export interface RuntimeAgentInfo {
   name: string;
   description?: string;
   mode?: "primary" | "subagent" | "all";
@@ -28,27 +28,27 @@ export interface OpencodeAgentInfo {
   [key: string]: unknown;
 }
 
-export interface OpencodeQuestionOption {
+export interface RuntimeQuestionOption {
   label: string;
   description?: string;
 }
 
-export interface OpencodeQuestionItem {
+export interface RuntimeQuestionItem {
   header?: string;
   question: string;
-  options: OpencodeQuestionOption[];
+  options: RuntimeQuestionOption[];
   multiple?: boolean;
   custom?: boolean;
 }
 
-export interface OpencodeQuestionRequest {
+export interface RuntimeQuestionRequest {
   id: string;
   sessionID?: string;
   sessionId?: string;
-  questions: OpencodeQuestionItem[];
+  questions: RuntimeQuestionItem[];
 }
 
-export interface OpencodePermission {
+export interface RuntimePermission {
   id: string;
   sessionID?: string;
   sessionId?: string;

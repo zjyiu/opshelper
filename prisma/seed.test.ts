@@ -3,17 +3,17 @@ import test from "node:test";
 
 import { resolveInitialAdminPassword, resolveSeedContainerImage } from "./seed";
 
-test("seed uses the configured opencode runtime image for container records", () => {
+test("seed uses the configured runtime image for container records", () => {
   assert.equal(
     resolveSeedContainerImage({
-      OPENCODE_DOCKER_IMAGE: "opshelper/opencode-runtime:v1",
+      RUNTIME_DOCKER_IMAGE: "opshelper/dsh-runtime:custom",
     }),
-    "opshelper/opencode-runtime:v1",
+    "opshelper/dsh-runtime:custom",
   );
 });
 
-test("seed falls back to the default opencode runtime image", () => {
-  assert.equal(resolveSeedContainerImage({}), "opshelper/opencode-runtime:2.0.27");
+test("seed falls back to the default DSH runtime image", () => {
+  assert.equal(resolveSeedContainerImage({}), "opshelper/dsh-runtime:0.2.2-rc.5-r1");
 });
 
 test("fresh installation requires an explicit bootstrap password of at least six characters", () => {

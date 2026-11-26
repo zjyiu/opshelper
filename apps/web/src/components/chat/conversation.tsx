@@ -20,7 +20,7 @@ import { copyText as writeClipboardText } from "@/lib/clipboard";
 import { type Assistant } from "./assistant";
 import { CollaborationBar } from "./collaboration-bar";
 import {
-  describeOpencodeError,
+  describeRuntimeError,
   fileAttachments,
   messageHasContent,
   partHasUserFacingContent,
@@ -458,7 +458,7 @@ const AssistantTurn = memo(function AssistantTurn({
   const parts = turnParts(turn);
   const visibleParts = parts.filter(partHasUserFacingContent);
   const operations = operationsFromParts(parts, agentKey);
-  const errors = Array.from(new Set(turnErrors(turn).map(describeOpencodeError)));
+  const errors = Array.from(new Set(turnErrors(turn).map(describeRuntimeError)));
   const copyText = visibleParts.map((part) => part.text).join("\n\n").trim();
   const hasContent = visibleParts.length > 0 || operations.length > 0 || errors.length > 0;
   // 出错/空回复的“空壳”消息（只有 step-start 之类不可见 part）不渲染。

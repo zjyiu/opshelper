@@ -17,7 +17,7 @@ import test, { after } from "node:test";
 const dataRoot = mkdtempSync(path.join(os.tmpdir(), "opshelper-files-"));
 const outsideRoot = mkdtempSync(path.join(os.tmpdir(), "opshelper-outside-"));
 process.env.DATA_ROOT = dataRoot;
-process.env.OPENCODE_WORKING_DIR = "/workspace";
+process.env.RUNTIME_WORKING_DIR = "/workspace";
 
 type FileService = typeof import("./file-service");
 let cached: FileService | null = null;

@@ -28,7 +28,7 @@ export function basename(path: string): string {
 }
 
 export function fullConversationTitle(raw: string) {
-  // opencode auto-titles new sessions "New session - <ISO>"; show a friendlier
+  // Runtime may auto-title new sessions "New session - <ISO>"; show a friendlier
   // label until the model renames it.
   const text = String(raw);
   if (/^New session/i.test(text)) return "新的对话";
@@ -110,7 +110,7 @@ export function messageSignature(message: ChatMessage) {
   });
 }
 
-export function describeOpencodeError(error: unknown): string {
+export function describeRuntimeError(error: unknown): string {
   if (!error) return "未知错误";
   if (typeof error === "string") return error;
   const e = error as { name?: string; data?: { message?: string }; message?: string };
@@ -118,9 +118,9 @@ export function describeOpencodeError(error: unknown): string {
 }
 
 /**
- * 管理员新增/修改模型后、用户容器还没重启时，容器内的 opencode 不认识新模型，
+ * 管理员新增/修改模型后、用户容器还没重启时，容器内的运行时不认识新模型，
  * 会报「模型/供应商不存在」类错误（如 ProviderModelNotFoundError）。识别它，
- * 好把原始报错换成「重启工作台」的引导。字段形状随 opencode 版本变化，按
+ * 好把原始报错换成「重启工作台」的引导。字段形状随运行时版本变化，按
  * 错误名与消息文本模糊匹配（send 失败时只有拼进 Error.message 的响应文本）。
  */
 export function isUnknownModelError(error: unknown): boolean {

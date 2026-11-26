@@ -118,7 +118,7 @@ async function claimApply(userId: string) {
     }
 
     // A formal top-level execution owns the user's runtime slot before any
-    // external OpenCode call starts. Normal changes drain it; revocations ask
+    // external runtime call starts. Normal changes drain it; revocations ask
     // the execution service to stop and verify the whole native session tree.
     if (current.activeExecutionId) {
       return {

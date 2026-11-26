@@ -1,4 +1,4 @@
-import type { OpencodeAgentInfo, OpencodeConfig } from "@/lib/opencode-client";
+import type { RuntimeAgentInfo, RuntimeConfig } from "@/lib/runtime-client";
 
 // Assistants come from the user's applied data/agents subset. The only runtime
 // fields we can rely on are the agent id and description, so visuals are derived.
@@ -87,7 +87,7 @@ export function starterExamplesFor(assistant: Assistant): StarterExample[] {
 
 // Admin-provided starter prompts can arrive in two shapes:
 //  - GET /config: the raw agent map, so `prompts` sits at the top level.
-//  - GET /agent: opencode parses each agent and tucks keys it doesn't model
+//  - GET /agent: runtime parses each agent and tucks keys it doesn't model
 //    itself (like our `prompts`) under an `options` bag — verified against
 //    1.17.x, where a markdown agent's `prompts:` frontmatter surfaces as
 //    `options.prompts`. So we read both locations.
@@ -119,17 +119,17 @@ function assistantFromConfigEntry(id: string, entry: unknown): Assistant {
   return { id, name, description, prompts, agent: id };
 }
 
-export function assistantsFromConfig(config: OpencodeConfig): Assistant[] {
+export function assistantsFromConfig(config: RuntimeConfig): Assistant[] {
   return Object.entries(config.agent ?? {}).map(([id, entry]) =>
     assistantFromConfigEntry(id, entry),
   );
 }
 
-// 从 opencode `GET /agent` 的已解析列表构建助理。过滤掉:
+// 从运行时 `GET /agent` 的已解析列表构建助理。过滤掉:
 //   - native: 内置 agent（build/plan/general/explore…），opshelper 只展示自定义助理；
 //   - hidden: compaction/title/summary 等内部 agent；
 //   - mode==="subagent": 子智能体只被其他智能体调用，不作为可主选助理。
-export function assistantsFromAgents(agents: OpencodeAgentInfo[]): Assistant[] {
+export function assistantsFromAgents(agents: RuntimeAgentInfo[]): Assistant[] {
   return agents
     .filter(
       (a) =>

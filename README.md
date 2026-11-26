@@ -32,7 +32,7 @@ opshelper 将智能体、模型连接、工具和执行环境集中管理，让�
 
 ## 技术架构
 
-opshelper 采用 TypeScript，通过 npm workspaces 管理 Web、API、Worker 和共享代码。平台负责用户、权限、配置和任务管理，OpenCode 负责智能体执行。
+opshelper 采用 TypeScript，通过 npm workspaces 管理 Web、API、Worker 和共享代码。平台负责用户、权限、配置和任务管理，DeepSeek Harness (`dsh`) 负责智能体执行。
 
 ```mermaid
 flowchart LR
@@ -41,7 +41,7 @@ flowchart LR
   Nginx --> API[Fastify API]
   API --> DB[(PostgreSQL)]
   Worker[Worker] --> DB
-  API --> Runtime[每用户 OpenCode 容器]
+  API --> Runtime[每用户 DeepSeek Harness 容器]
   Runtime --> Model[模型 API]
   Runtime --> MCP[MCP 服务]
   Runtime --> Files[用户工作目录与会话状态]
@@ -52,8 +52,8 @@ flowchart LR
 | Web | Next.js 15、React 19，提供对话工作区和管理界面 |
 | API | Fastify、Prisma、Dockerode，处理登录、智能体分配、执行队列、配置发布和容器生命周期 |
 | Worker | 登记到期任务，回收空闲用户容器；任务执行由 API 统一驱动 |
-| 执行环境 | OpenCode 2.0.27，以 `opencode2 serve` 运行，使用 HTTP API 与 SSE 对接平台 |
-| 数据存储 | PostgreSQL 16 保存平台业务数据，宿主目录保存智能体配置、用户文件和 OpenCode 状态 |
+| 执行环境 | DeepSeek Harness (`@deepseek-ai/dsh@0.2.2-rc.5`)，以进程内 HTTP API 与 SSE 对接平台 |
+| 数据存储 | PostgreSQL 16 保存平台业务数据，宿主目录保存智能体配置、用户文件和运行时状态 |
 | 部署 | Docker Compose 管理平台服务，nginx 提供统一访问入口 |
 
 每位用户使用一个可复用的执行容器。同一用户的多个智能体共享工作目录和会话状态，不同用户使用独立的挂载目录和配置快照。执行容器以非 root 用户运行，根文件系统和受管配置只读，不挂载 Docker socket，也不直接发布宿主端口。
@@ -123,10 +123,10 @@ curl -f http://127.0.0.1:8080/health
 data/
 ├── postgres/                 平台数据库
 ├── agents/<key>/             智能体、Skills、脚本与 MCP 配置
-├── config/opencode/          模型连接与全局配置
+├── config/runtime/           模型连接与全局配置
 └── users/<userId>/
     ├── workspace/            用户文件与任务产物
-    ├── state/                OpenCode 会话与运行状态
+    ├── state/                运行时会话与状态（DeepSeek Harness 使用 state/dsh-v1/）
     └── managed/              已分配能力的受管配置快照
 ```
 
@@ -158,7 +158,6 @@ npm run build:web
 | `prisma` | 数据库 schema、迁移与初始化 |
 | `deploy` | 运行时镜像定义与 nginx 配置 |
 | `scripts` | 部署、备份和验证工具 |
-| `examples/opencode-config` | 最小配置示例，不会自动部署 |
 
 ## 使用文档
 
@@ -167,7 +166,6 @@ npm run build:web
 - [用户手册](docs/guide/user.md)
 - [外部系统对话 API 调用手册](docs/guide/external-chat-api.md)
 - [源码部署](docs/guide/deployment.md)
-- [OpenCode 2 切换、验证与恢复](docs/guide/opencode-2-migration.md)
 - [Linux x86_64 离线部署](docs/guide/offline-amd64.md)
 - [备份与恢复](docs/guide/backup-restore.md)
 - [故障处理](docs/guide/troubleshooting.md)

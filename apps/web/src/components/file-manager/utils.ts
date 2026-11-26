@@ -42,7 +42,7 @@ export interface DataTransferItemWithEntry {
   webkitGetAsEntry?: () => FileSystemEntryLike | null;
 }
 
-// The opencode working directory (/workspace) — the user's shared workspace all
+// The runtime working directory (/workspace) — the user's shared workspace all
 // agents operate in, and the root the gateway's file API is scoped to.
 export const rootPath = "/workspace";
 export const rootLabel = "工作目录";

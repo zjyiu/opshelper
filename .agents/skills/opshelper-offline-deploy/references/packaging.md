@@ -23,7 +23,7 @@ docker pull --platform linux/amd64 <nginx-version>
 
 基础镜像也以本次发布标签固定并记录摘要。多架构 image index 在本机 `inspect` 可能默认显示 ARM；用支持 `--platform linux/amd64` 的检查和导出，并最终解析归档 config 的 `os`/`architecture`。不要为了单架构标签盲目按 config hash 执行 `docker tag`，它不一定是 Docker 可寻址的镜像 ID。
 
-runtime 校验其固定 OpenCode 版本、内置 provider 支持及 Python 依赖；新增 SDK、MCP、浏览器或系统工具依赖需实际纳入镜像或列为明确的独立交付项。不要把历史技能目录存在等同于已装入用户运行环境。
+runtime 校验其固定 DeepSeek Harness (`@deepseek-ai/dsh`) 版本、内置 provider 支持及 Python 依赖；新增 SDK、MCP、浏览器或系统工具依赖需实际纳入镜像或列为明确的独立交付项。不要把历史技能目录存在等同于已装入用户运行环境。
 
 ## 选择交付内容并压缩
 

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository is an npm-workspaces TypeScript monorepo. `apps/api` contains the Fastify gateway, authentication, container lifecycle, and Prisma-backed services. `apps/web` is the Next.js 15/React 19 UI; routes live under `src/app` and reusable UI under `src/components`. `apps/worker` handles scheduling and idle-container cleanup, while `packages/shared` exposes shared contracts and utilities. Database schema and seed logic live in `prisma/`. Runtime image definitions and nginx configuration are under `deploy/`; manually imported skill examples are under `examples/opencode-config/` and are not automatically deployed.
+This repository is an npm-workspaces TypeScript monorepo. `apps/api` contains the Fastify gateway, authentication, container lifecycle, and Prisma-backed services. `apps/web` is the Next.js 15/React 19 UI; routes live under `src/app` and reusable UI under `src/components`. `apps/worker` handles scheduling and idle-container cleanup, while `packages/shared` exposes shared contracts and utilities. Database schema and seed logic live in `prisma/`. Runtime image definitions and nginx configuration are under `deploy/`.
 
 ## Build, Test, and Development Commands
 

@@ -1,28 +1,28 @@
 /**
- * Normalizes opencode's interactive prompts — model-initiated questions
+ * Normalizes runtime interactive prompts — model-initiated questions
  * (`question.asked`) and tool/command authorization requests
  * (`permission.updated`) — into stable shapes the chat UI can render.
  *
  * As with message-model.ts, every accessor is defensive: the exact event
- * payloads vary by opencode version (see the opshelper plan's "待确认" note).
+ * payloads may vary across runtime versions.
  */
 
 import type {
-  OpencodePermission,
-  OpencodeQuestionItem,
-  OpencodeQuestionOption,
-  OpencodeQuestionRequest,
-} from "@/lib/opencode-client";
+  RuntimePermission,
+  RuntimeQuestionItem,
+  RuntimeQuestionOption,
+  RuntimeQuestionRequest,
+} from "@/lib/runtime-client";
 
 // ---- Questions -------------------------------------------------------------
 
 export interface PendingQuestion {
   id: string;
   sessionId?: string;
-  questions: OpencodeQuestionItem[];
+  questions: RuntimeQuestionItem[];
 }
 
-function normalizeOption(raw: any): OpencodeQuestionOption | null {
+function normalizeOption(raw: any): RuntimeQuestionOption | null {
   if (raw == null) return null;
   if (typeof raw === "string") return { label: raw };
   const label = raw.label ?? raw.value ?? raw.title ?? raw.text;
@@ -30,14 +30,14 @@ function normalizeOption(raw: any): OpencodeQuestionOption | null {
   return { label: String(label), description: raw.description ?? raw.detail };
 }
 
-function normalizeItem(raw: any): OpencodeQuestionItem {
+function normalizeItem(raw: any): RuntimeQuestionItem {
   const options = Array.isArray(raw?.options)
     ? raw.options.map(normalizeOption).filter(Boolean)
     : [];
   return {
     header: raw?.header ?? raw?.title,
     question: String(raw?.question ?? raw?.header ?? raw?.prompt ?? ""),
-    options: options as OpencodeQuestionOption[],
+    options: options as RuntimeQuestionOption[],
     multiple: Boolean(raw?.multiple ?? raw?.multiSelect),
     custom: Boolean(raw?.custom ?? raw?.allowCustom ?? true),
   };
@@ -45,12 +45,12 @@ function normalizeItem(raw: any): OpencodeQuestionItem {
 
 /**
  * Pull the request out of a `question.asked` event (whose `properties` IS the
- * request) or a `GET /question` list item. Verified against opencode 1.17.7:
+ * request) or a `GET /question` list item:
  * { id, sessionID, questions: [{ header, question, options:[{label,description}],
  * multiple?, custom? }] }.
  */
 export function normalizeQuestion(raw: any): PendingQuestion | null {
-  const req: OpencodeQuestionRequest | undefined =
+  const req: RuntimeQuestionRequest | undefined =
     raw?.properties ?? raw?.question ?? raw?.request ?? raw;
   const id = req?.id ?? raw?.requestId ?? raw?.id;
   const items = Array.isArray(req?.questions) ? req!.questions : [];
@@ -69,13 +69,13 @@ export interface PendingPermission {
   sessionId: string;
   /** Human-readable request, e.g. "Run echo hello". */
   title: string;
-  /** Permission kind opencode reports: "bash" | "edit" | "read" | … */
+  /** Permission kind reported by runtime: "bash" | "edit" | "read" | … */
   tool?: string;
   /** A short preview of the command / pattern awaiting approval. */
   detail?: string;
 }
 
-function previewDetail(p: OpencodePermission): string | undefined {
+function previewDetail(p: RuntimePermission): string | undefined {
   const m = (p.metadata ?? {}) as Record<string, unknown>;
   const candidate = m.command ?? m.cmd ?? m.input ?? m.path ?? m.filePath;
   if (typeof candidate === "string") return candidate;
@@ -88,10 +88,10 @@ function previewDetail(p: OpencodePermission): string | undefined {
 /**
  * Pull the permission out of a `permission.asked` event (whose `properties` IS
  * the permission object) or a `GET /permission` list item. Fields verified
- * against opencode 1.17.7: { id, sessionID, permission, patterns, metadata }.
+ * shape: { id, sessionID, permission, patterns, metadata }.
  */
 export function normalizePermission(raw: any): PendingPermission | null {
-  const p: OpencodePermission | undefined = raw?.properties ?? raw;
+  const p: RuntimePermission | undefined = raw?.properties ?? raw;
   const id = p?.id;
   const sessionId = p?.sessionID;
   if (!id || !sessionId) return null;

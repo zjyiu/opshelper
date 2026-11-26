@@ -4,10 +4,10 @@ import path from "node:path";
 
 import { BUILTIN_INSTRUCTIONS, withBuiltinInstructions } from "./builtin-instructions";
 import { loadConfig } from "./config";
-import { ensureOpencodeConfigDir } from "./file-service";
+import { ensureRuntimeConfigDir } from "./file-service";
 
 const config = loadConfig();
-const CONFIG_FILE = "opencode.json";
+const CONFIG_FILE = "runtime.json";
 const GLOBAL_INSTRUCTIONS_FILE = "AGENTS.md";
 const PLATFORM_INSTRUCTIONS_FILE = "PLATFORM.md";
 export const MAX_GLOBAL_INSTRUCTIONS_BYTES = 100 * 1024;
@@ -18,7 +18,7 @@ const CUSTOM_PROVIDER_NAME = "自定义模型";
 const MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,128}$/;
 const MAX_MODELS = 100;
 
-type OpencodeConfigJson = Record<string, unknown> & {
+type RuntimeConfigJson = Record<string, unknown> & {
   agent?: Record<string, unknown>;
   mcp?: Record<string, unknown>;
   tools?: Record<string, unknown>;
@@ -60,15 +60,15 @@ export interface RuntimeModelConfiguration {
 }
 
 function configFilePath() {
-  return path.join(config.opencodeConfigPath, CONFIG_FILE);
+  return path.join(config.runtimeConfigPath, CONFIG_FILE);
 }
 
 function globalInstructionsFilePath() {
-  return path.join(config.opencodeConfigPath, GLOBAL_INSTRUCTIONS_FILE);
+  return path.join(config.runtimeConfigPath, GLOBAL_INSTRUCTIONS_FILE);
 }
 
 function platformInstructionsFilePath() {
-  return path.join(config.opencodeConfigPath, PLATFORM_INSTRUCTIONS_FILE);
+  return path.join(config.runtimeConfigPath, PLATFORM_INSTRUCTIONS_FILE);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -77,14 +77,14 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
-async function readConfigJson(): Promise<OpencodeConfigJson> {
-  await ensureOpencodeConfigDir();
+async function readConfigJson(): Promise<RuntimeConfigJson> {
+  await ensureRuntimeConfigDir();
   let raw: string;
   try {
     raw = await readFile(configFilePath(), "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { $schema: "https://opencode.ai/config.json" };
+      return {};
     }
     throw error;
   }
@@ -93,13 +93,13 @@ async function readConfigJson(): Promise<OpencodeConfigJson> {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("invalid root");
     }
-    return parsed as OpencodeConfigJson;
+    return parsed as RuntimeConfigJson;
   } catch {
-    throw new AdminConfigError("共享配置 opencode.json 不是合法 JSON，请先手动修复", 500);
+    throw new AdminConfigError("共享配置 runtime.json 不是合法 JSON，请先手动修复", 500);
   }
 }
 
-async function writeConfigJson(data: OpencodeConfigJson) {
+async function writeConfigJson(data: RuntimeConfigJson) {
   const destination = configFilePath();
   const temporary = `${destination}.${randomBytes(6).toString("hex")}.tmp`;
   try {
@@ -112,7 +112,7 @@ async function writeConfigJson(data: OpencodeConfigJson) {
 }
 
 export async function getGlobalInstructions() {
-  await ensureOpencodeConfigDir();
+  await ensureRuntimeConfigDir();
   try {
     return await readFile(globalInstructionsFilePath(), "utf8");
   } catch (error) {
@@ -143,7 +143,7 @@ export function normalizePlatformInstructionsContent(content: string) {
 }
 
 export async function updateGlobalInstructions(content: string) {
-  await ensureOpencodeConfigDir();
+  await ensureRuntimeConfigDir();
   const normalized = normalizeGlobalInstructionsContent(content);
   const destination = globalInstructionsFilePath();
   if (!normalized) {
@@ -162,7 +162,7 @@ export async function updateGlobalInstructions(content: string) {
 }
 
 export async function getPlatformInstructions() {
-  await ensureOpencodeConfigDir();
+  await ensureRuntimeConfigDir();
   let platformInstructions: string;
   try {
     platformInstructions = await readFile(platformInstructionsFilePath(), "utf8");
@@ -179,7 +179,7 @@ export async function getPlatformInstructions() {
 }
 
 export async function updatePlatformInstructions(content: string) {
-  await ensureOpencodeConfigDir();
+  await ensureRuntimeConfigDir();
   const normalized = normalizePlatformInstructionsContent(content);
   const destination = platformInstructionsFilePath();
   const temporary = `${destination}.${randomBytes(6).toString("hex")}.tmp`;
@@ -220,11 +220,11 @@ export async function retireBrowserMcpConfig(): Promise<boolean> {
   return changed;
 }
 
-function customProviderOf(value: OpencodeConfigJson) {
+function customProviderOf(value: RuntimeConfigJson) {
   return asRecord(asRecord(value.provider)[CUSTOM_PROVIDER_KEY]);
 }
 
-function modelSettingsOf(value: OpencodeConfigJson): ModelSettings {
+function modelSettingsOf(value: RuntimeConfigJson): ModelSettings {
   const provider = customProviderOf(value);
   const options = asRecord(provider.options);
   const models = Object.entries(asRecord(provider.models)).map(([id, raw]) => {

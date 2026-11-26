@@ -4,7 +4,7 @@ import { unzip, ZipError } from "./zip";
 
 const SKILL_NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const IGNORED_NAMES = new Set([".DS_Store", "Thumbs.db"]);
-const RESERVED_PARTS = new Set([".git", ".opencode", "node_modules", "__MACOSX"]);
+const RESERVED_PARTS = new Set([".git", ".dsh", "node_modules", "__MACOSX"]);
 
 export interface ImportedSkillPackage {
   skillName: string;

@@ -24,7 +24,7 @@ function messageInfo(message: unknown) {
 
 /**
  * Returns only root assistant messages that belong to the user message carrying
- * this execution marker. OpenCode associates every assistant step in one turn
+ * this execution marker. The runtime associates every assistant step in one turn
  * with that user message through info.parentID.
  */
 export function currentExecutionMessages(rootMessages: unknown[], markerText: string) {
@@ -59,7 +59,7 @@ export function assistantError(message: unknown) {
 
 /**
  * An explicit assistant error is terminal. A successful assistant step is only
- * terminal when OpenCode persisted both its completion time and finish reason;
+ * terminal when the runtime persisted both its completion time and finish reason;
  * tool-calls is an intermediate agent-loop step and must not finish an execution.
  */
 export function isFinalAssistant(message: unknown) {

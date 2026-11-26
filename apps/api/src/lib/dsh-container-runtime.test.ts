@@ -3,17 +3,30 @@ import { test } from "node:test";
 import type Docker from "dockerode";
 
 import { loadConfig } from "./config";
-import { buildContainerCreateOptions, isStaleRuntime } from "./opencode-container-runtime";
+import { buildContainerCreateOptions, isStaleRuntime } from "./dsh-container-runtime";
 
 const config = { ...loadConfig(), dataRoot: "/data", dataRootHost: "/srv/opshelper/data" };
-const runtime = { generation: "a".repeat(24), password: "b".repeat(64), agentKeys: ["network", "system"], model: "fixture/model", desiredGeneration: 1 };
+const runtime = {
+  generation: "a".repeat(24),
+  defaultAgentKey: "network",
+  password: "b".repeat(64),
+  agentKeys: ["network", "system"],
+  model: "fixture/model",
+  desiredGeneration: 1,
+};
 const build = (userId = "user-a") => buildContainerCreateOptions({
-  record: { name: `opshelper-user-${userId}`, image: "opshelper/runtime:test", userId }, runtime, config,
+  record: { name: `opshelper-user-${userId}`, image: "opshelper/dsh-runtime:test", userId },
+  runtime,
+  config,
 });
 
 test("两个智能体只装进一个用户容器，数据bind指向宿主目录且只装配用户子集", () => {
   const options = build();
   assert.deepEqual(options.ExposedPorts, { "4096/tcp": {} });
+  assert.deepEqual(options.Cmd, ["dumb-init", "--", "node", "/opt/dsh-runtime/src/server.mjs"]);
+  assert.equal(options.Labels?.["opshelper.engine"], "dsh");
+  assert.ok(options.Env?.includes("DSH_HOME=/state/dsh-v1"));
+  assert.ok(options.Env?.includes("DSH_TELEMETRY_DISABLED=1"));
   assert.equal(options.HostConfig?.Binds?.length, 3);
   assert.deepEqual(options.HostConfig?.Binds, [
     "/srv/opshelper/data/users/user-a/workspace:/workspace:rw",
@@ -43,7 +56,7 @@ test("安全参数漂移会要求重建，镜像内置PATH不会导致每次启�
     HostConfig: structuredClone(options.HostConfig),
   } as Docker.ContainerInspectInfo;
   assert.equal(isStaleRuntime(inspect, options, ["PATH=/usr/bin"]), false);
-  inspect.Config.Env!.push("OPENCODE_CONFIG_CONTENT={\"agent\":{\"rogue\":{}}}");
+  inspect.Config.Env!.push("DSH_ROGUE_FLAG=1");
   assert.equal(isStaleRuntime(inspect, options, ["PATH=/usr/bin"]), true);
   inspect.Config.Env!.pop();
   inspect.HostConfig.ReadonlyRootfs = false;

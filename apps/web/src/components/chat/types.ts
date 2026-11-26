@@ -2,7 +2,7 @@
 
 // A file queued on the composer to send with the next prompt. Composer uploads
 // start as "uploading"; `@` mentions of existing workspace files are "ready"
-// immediately. Only "ready" attachments are forwarded to opencode.
+// immediately. Only "ready" attachments are forwarded to the runtime.
 export interface Attachment {
   id: string;
   path: string; // absolute workspace path inside the container

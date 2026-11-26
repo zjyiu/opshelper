@@ -22,7 +22,7 @@ MAX_ENTRY_BYTES = 16 * 1024 * 1024
 NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_RE = re.compile(r"^(?:\ufeff)?---\r?\n(?P<body>[\s\S]*?)\r?\n---(?:\r?\n|$)")
 IGNORED_NAMES = {".DS_Store", "Thumbs.db"}
-RESERVED_PARTS = {".git", ".opencode", "node_modules", "__MACOSX"}
+RESERVED_PARTS = {".git", ".dsh", "node_modules", "__MACOSX"}
 POLICY_MARKER = "<!-- opshelper-workspace-policy:v1 -->"
 FORBIDDEN_PATTERNS = [
     (re.compile(r"(?<![\w])/(?:Users|root|mnt|private|var|opt|srv|data|home)/(?!workspace(?:/|\b))[^\s'\"`)]*"), "仍引用 /workspace 之外的数据路径"),
@@ -33,7 +33,7 @@ FORBIDDEN_PATTERNS = [
 ]
 WARNING_PATTERNS = [
     (re.compile(r"(?:^|[\s`])(?:curl|wget)(?:[\s`]|$)"), "包含下载命令，离线或受限网络中可能不可用"),
-    (re.compile(r"(?:\.opencode/|opencode\.jsonc?\b)"), "引用项目级 OpenCode 配置；opshelper 不会把它作为受管配置来源"),
+    (re.compile(r"(?:\.dsh/|cordis\.ya?ml\b)"), "引用项目级运行时配置；opshelper 不会把它作为受管配置来源"),
     (re.compile(r"https?://"), "包含网络地址，需确认目标运行环境可访问"),
 ]
 
@@ -147,7 +147,7 @@ def injected_policy(name: str) -> str:
 - Put final deliverables under `/workspace/outputs/` unless the user gives another path under `/workspace`.
 - Put scratch data in `/workspace/.tmp/{name}/` and persistent skill-owned data in `/workspace/.opshelper/{name}/`.
 - The installed skill directory is read-only and its runtime name may be prefixed. Resolve bundled resources from the base directory reported by the skill tool; never hardcode the install path or copy name.
-- Do not modify OpenCode project/runtime configuration or install packages during a task. If a required dependency is unavailable, report it instead of claiming completion.
+- Do not modify runtime project configuration or install packages during a task. If a required dependency is unavailable, report it instead of claiming completion.
 
 """
 

@@ -2,7 +2,7 @@
 
 x86 离线物理机部署请使用[离线部署文档](offline-amd64.md)和发布包内的 Compose 配置，直接执行 `docker load`、`docker-compose` 命令，无需部署脚本。下文用于持有源码的开发机及既有 `scripts/opshelper.py` 部署。
 
-当前版本面向全新单机部署。保持 TypeScript / Fastify / Next.js / PostgreSQL 16 / Docker；每用户一个固定 OpenCode 2.0.27 容器。管理员分配智能体，用户可使用个人对话、文件和定时任务，并可在工作台创建智能体。
+当前版本面向全新单机部署。保持 TypeScript / Fastify / Next.js / PostgreSQL 16 / Docker；每用户一个固定 DeepSeek Harness 运行时容器（`opshelper/dsh-runtime:0.2.2-rc.5-r1`）。管理员分配智能体，用户可使用个人对话、文件和定时任务，并可在工作台创建智能体。
 
 ## 从空目录安装
 
@@ -51,9 +51,9 @@ deployment/
   data/
     postgres/                 PostgreSQL 16
     agents/<key>/             管理员维护的智能体目录
-    config/opencode/          模型连接及密钥
+    config/runtime/           模型连接及密钥
     users/<userId>/workspace/  用户文件和输出
-    users/<userId>/state/      OpenCode 原生会话与状态
+    users/<userId>/state/      运行时原生会话与状态（DeepSeek Harness 使用 state/dsh-v1/）
     users/<userId>/managed/    已分配智能体的只读配置快照
     backups/                  可存放手工导出；整套备份工具要求目标在 data 外
 ```
@@ -70,7 +70,7 @@ deployment/
 
 ## 更新与重启
 
-已有 OpenCode 1 开发实例必须先按 [OpenCode 2 切换说明](opencode-2-migration.md)处理旧会话关联；不能只更新镜像标签后直接启动。V2 状态保存在每用户 `state/v2/`，与旧状态分离。后续并发修复包含 `20261013000100_schedule_manual_concurrency` 索引迁移；个人智能体功能包含 `20261014000100_personal_agent_ownership` 所有者迁移。升级由 `up` 应用，不运行 seed；迁移前先停写备份并保留原镜像。
+已有旧版运行时实例切换到 DeepSeek Harness 运行时前，必须先停写备份，再运行 `python3 scripts/dsh-cutover.py --discard-history` 清理旧会话关联、暂停定时任务并移除旧用户容器（默认不加 `--discard-history` 仅预览）；不能只更新镜像标签后直接启动。DeepSeek Harness 状态保存在每用户 `state/dsh-v1/`，与旧状态目录分离。升级由 `up` 应用，不运行 seed；迁移前先停写备份并保留原镜像。
 
 对话置顶需要应用 `20261118000100_conversation_pin` 数据库迁移，并同步更新 API 和 Web；旧备份恢复后需重新应用迁移。永久删除不会清除已有备份。
 

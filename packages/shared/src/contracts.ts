@@ -164,7 +164,7 @@ export interface ContainerActionResponse {
 export interface ChatModelOption {
   id: string;
   name: string;
-  /** 发给 opencode 的完整模型引用，形如 "custom/<id>"。 */
+  /** 发给运行时的完整模型引用，形如 "custom/<id>"。 */
   model: string;
 }
 

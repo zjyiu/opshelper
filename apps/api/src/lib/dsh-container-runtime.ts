@@ -12,7 +12,7 @@ export interface BuildContainerCreateOptionsInput {
   config?: AppConfig;
 }
 
-/** One reusable user container. Agents deliberately share its files and state. */
+/** One reusable user container running the in-process DSH runtime bridge. */
 export function buildContainerCreateOptions(input: BuildContainerCreateOptionsInput): Docker.ContainerCreateOptions {
   const config = input.config ?? loadConfig();
   const user = getHostUserPaths(input.record.userId, config);
@@ -21,33 +21,27 @@ export function buildContainerCreateOptions(input: BuildContainerCreateOptionsIn
     name: input.record.name,
     Image: input.record.image,
     User: `${config.runtimeUid}:${config.runtimeGid}`,
-    Cmd: ["dumb-init", "--", "opencode2", "serve", "--hostname", "0.0.0.0", "--port", String(config.opencodePort)],
+    Cmd: ["dumb-init", "--", "node", "/opt/dsh-runtime/src/server.mjs"],
     Env: [
       "HOME=/home/node",
-      "XDG_CONFIG_HOME=/opt/opshelper/config",
-      "XDG_DATA_HOME=/state/v2/data",
-      "XDG_CACHE_HOME=/state/v2/cache",
-      "XDG_STATE_HOME=/state/v2/state",
-      "OPENCODE_DISABLE_PROJECT_CONFIG=true",
-      "OPENCODE_DISABLE_EXTERNAL_SKILLS=true",
-      "OPENCODE_DISABLE_MODELS_FETCH=true",
-      "OPENCODE_DISABLE_AUTOUPDATE=true",
-      "OPENCODE_DISABLE_DEFAULT_PLUGINS=true",
-      `OPENCODE_PORT=${config.opencodePort}`,
-      `OPENCODE_WORKING_DIR=${config.opencodeDirectory}`,
-      "OPENCODE_SERVER_USERNAME=opencode",
-      `OPENCODE_SERVER_PASSWORD=${input.runtime.password}`,
+      "DSH_HOME=/state/dsh-v1",
+      "DSH_TELEMETRY_DISABLED=1",
+      "OPSHELPER_MANAGED_DIR=/opt/opshelper",
+      `RUNTIME_PORT=${config.runtimePort}`,
+      `RUNTIME_WORKING_DIR=${config.runtimeDirectory}`,
+      `RUNTIME_SERVER_PASSWORD=${input.runtime.password}`,
     ],
-    WorkingDir: config.opencodeDirectory,
-    ExposedPorts: { [`${config.opencodePort}/tcp`]: {} },
+    WorkingDir: config.runtimeDirectory,
+    ExposedPorts: { [`${config.runtimePort}/tcp`]: {} },
     Labels: {
       "opshelper.managed": "true",
+      "opshelper.engine": "dsh",
       "opshelper.userId": input.record.userId,
       "opshelper.generation": input.runtime.generation,
     },
     HostConfig: {
       Binds: [
-        `${user.workspace}:${config.opencodeDirectory}:rw`,
+        `${user.workspace}:${config.runtimeDirectory}:rw`,
         `${user.state}:/state:rw`,
         `${path.join(user.managed, "releases", input.runtime.generation)}:/opt/opshelper:ro`,
       ],
@@ -65,7 +59,11 @@ export function buildContainerCreateOptions(input: BuildContainerCreateOptionsIn
   };
 }
 
-export function isStaleRuntime(inspect: Docker.ContainerInspectInfo, expected: Docker.ContainerCreateOptions, imageEnvironment: string[] = []) {
+export function isStaleRuntime(
+  inspect: Docker.ContainerInspectInfo,
+  expected: Docker.ContainerCreateOptions,
+  imageEnvironment: string[] = [],
+) {
   const sorted = (values: string[] | null | undefined) => [...(values ?? [])].sort();
   const environment = (values: string[]) => Object.fromEntries(values.map((value) => {
     const at = value.indexOf("=");
@@ -83,9 +81,9 @@ export function isStaleRuntime(inspect: Docker.ContainerInspectInfo, expected: D
     inspect.HostConfig?.NetworkMode !== expected.HostConfig?.NetworkMode ||
     inspect.HostConfig?.Memory !== expected.HostConfig?.Memory ||
     inspect.HostConfig?.NanoCpus !== expected.HostConfig?.NanoCpus ||
-    JSON.stringify(sorted(inspect.HostConfig?.CapDrop)) !== JSON.stringify(sorted(expected.HostConfig?.CapDrop)) ||
-    JSON.stringify(sorted(inspect.HostConfig?.SecurityOpt)) !== JSON.stringify(sorted(expected.HostConfig?.SecurityOpt)) ||
-    JSON.stringify(sorted(inspect.HostConfig?.ExtraHosts)) !== JSON.stringify(sorted(expected.HostConfig?.ExtraHosts)) ||
+    JSON.stringify(sorted(inspect.HostConfig?.CapDrop)) !== JSON.stringify(sorted(inspect.HostConfig?.CapDrop)) ||
+    JSON.stringify(sorted(inspect.HostConfig?.SecurityOpt)) !== JSON.stringify(sorted(inspect.HostConfig?.SecurityOpt)) ||
+    JSON.stringify(sorted(inspect.HostConfig?.ExtraHosts)) !== JSON.stringify(sorted(inspect.HostConfig?.ExtraHosts)) ||
     JSON.stringify(inspect.HostConfig?.Tmpfs ?? {}) !== JSON.stringify(expected.HostConfig?.Tmpfs ?? {}) ||
     inspect.HostConfig?.PidsLimit !== expected.HostConfig?.PidsLimit ||
     inspect.HostConfig?.RestartPolicy?.Name !== expected.HostConfig?.RestartPolicy?.Name ||

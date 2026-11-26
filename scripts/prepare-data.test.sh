@@ -6,7 +6,7 @@ test_root="$(mktemp -d)"
 trap 'rm -rf "$test_root"' EXIT
 
 output="$("$repo_root/scripts/prepare-data.sh" "$test_root/data")"
-for required in postgres agents config/opencode users backups; do
+for required in postgres agents config/runtime users backups; do
   test -d "$test_root/data/$required"
   test ! -L "$test_root/data/$required"
 done

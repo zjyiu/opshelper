@@ -2,7 +2,7 @@ import { ChatApp } from "@/components/chat/chat-app";
 import { getChatModels } from "@/lib/api";
 
 export default async function ChatPage() {
-  const directory = process.env.OPENCODE_WORKING_DIR ?? "/workspace";
+  const directory = process.env.RUNTIME_WORKING_DIR ?? "/workspace";
   const chatModels = await getChatModels().catch(() => ({
     models: [],
     defaultModel: "",

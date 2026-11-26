@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { confirm as confirmDialog } from "./ui/dialog-host";
 import { toast } from "@/lib/toast";
 
-const API_BASE = "/v1/admin/opencode/instructions";
+const API_BASE = "/v1/admin/runtime/instructions";
 
 interface GlobalInstructionsSettings {
   content: string;

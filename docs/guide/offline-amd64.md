@@ -4,7 +4,7 @@
 
 ## 1. 包内容与前提
 
-- `images.tar.gz`：API、Web、Worker、OpenCode 1.18.34 运行环境、PostgreSQL 16、nginx，共 6 个镜像。
+- `images.tar.gz`：API、Web、Worker、DeepSeek Harness (`dsh`) 运行环境、PostgreSQL 16、nginx，共 6 个镜像。
 - `docker-compose.yml`：移除构建段，固定 `linux/amd64`，各服务设置 `pull_policy: never`。
 - `.env.example`、`deploy/nginx/default.conf`：部署参数模板与代理配置。
 - `images-manifest.json`、`source-manifest.json`、`SHA256SUMS`：镜像身份、构建源文件哈希与文件完整性校验。
@@ -22,7 +22,7 @@ docker-compose version
 systemctl enable --now docker
 ```
 
-容量按实际用户数规划：每个活动用户的 OpenCode 容器默认最多使用 2 CPU、2 GiB 内存，另需为数据库、平台服务和文件留出资源。离线包不包含模型权重、现有业务数据、模型密钥或自定义智能体。模型 API 必须在内网可达；新增技能/MCP 的额外依赖也需另行离线准备。运行环境已预装项目 requirements.txt 中的 Python 依赖。
+容量按实际用户数规划：每个活动用户的运行时容器默认最多使用 2 CPU、2 GiB 内存，另需为数据库、平台服务和文件留出资源。离线包不包含模型权重、现有业务数据、模型密钥或自定义智能体。模型 API 必须在内网可达；新增技能/MCP 的额外依赖也需另行离线准备。运行环境已预装项目 requirements.txt 中的 Python 依赖。
 
 ## 2. 解压、校验、加载镜像
 
@@ -40,7 +40,7 @@ sha256sum -c SHA256SUMS
 docker load -i images.tar.gz
 
 # 从已验证的包内 .env.example 读取镜像标签，并核对架构
-images=$(sed -nE 's/^(OPSHELPER_(API|WEB|WORKER|POSTGRES|NGINX)_IMAGE|OPENCODE_DOCKER_IMAGE)=(.+)$/\3/p' .env.example)
+images=$(sed -nE 's/^(OPSHELPER_(API|WEB|WORKER|POSTGRES|NGINX)_IMAGE|RUNTIME_DOCKER_IMAGE)=(.+)$/\3/p' .env.example)
 for image in $images; do
   docker image inspect --format '{{.RepoTags}} {{.Os}}/{{.Architecture}}' "$image"
 done
@@ -84,14 +84,14 @@ COMPOSE_PROJECT_NAME=opshelper-offline
 ```bash
 mkdir -p /opt/opshelper/data/postgres \
   /opt/opshelper/data/agents \
-  /opt/opshelper/data/config/opencode \
+  /opt/opshelper/data/config/runtime \
   /opt/opshelper/data/users \
   /opt/opshelper/data/backups
 chown 1000:1000 /opt/opshelper/data /opt/opshelper/data/agents \
-  /opt/opshelper/data/config /opt/opshelper/data/config/opencode \
+  /opt/opshelper/data/config /opt/opshelper/data/config/runtime \
   /opt/opshelper/data/users /opt/opshelper/data/backups
 chmod 750 /opt/opshelper/data /opt/opshelper/data/agents \
-  /opt/opshelper/data/config /opt/opshelper/data/config/opencode /opt/opshelper/data/users
+  /opt/opshelper/data/config /opt/opshelper/data/config/runtime /opt/opshelper/data/users
 chmod 700 /opt/opshelper/data/backups
 ```
 

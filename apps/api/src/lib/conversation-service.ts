@@ -40,7 +40,7 @@ import { resolveUserPathSafe } from "./file-service";
 import { runtimeAuthorization, type ManagedRuntime } from "./managed-runtime";
 import { prisma } from "./prisma";
 import { fallbackConversationTitle, needsTitleSummary, summarizeConversationTitle } from "./conversation-title";
-import { normalizeV2Messages, normalizeV2Form, normalizeV2Event, v2FormAnswer, v2List, v2Request, RuntimeRequestError } from "./opencode-v2";
+import { runtimeHttpRequest, RuntimeRequestError } from "./runtime-client";
 import { withUserConfigLock } from "./user-config-lock";
 
 const config = loadConfig();
@@ -380,7 +380,7 @@ export async function readExecutionAnswer(
   const messages = await runtimeRequest<unknown[]>(
     connection,
     "GET",
-    `/api/session/${conversation.nativeSessionId}/message`,
+    `/runtime/sessions/${conversation.nativeSessionId}/messages`,
     undefined,
     15_000,
   );
@@ -486,16 +486,7 @@ async function runtimeRequest<T>(
   body?: unknown,
   timeoutMs = 30_000,
 ): Promise<T> {
-  if (method === "GET" && (route === "/api/session" || /^\/api\/session\/[^/]+\/message$/.test(route))) {
-    const values = await v2List(connection, route);
-    return (route === "/api/session" ? values : normalizeV2Messages(values, route.split("/")[3])) as T;
-  }
-  const result = await v2Request<any>(connection, method, route, body, timeoutMs);
-  const data = result?.data ?? result;
-  if (route === "/api/session/active") return Object.fromEntries(Object.entries(data ?? {}).map(([id]) => [id, { type: "busy" }])) as T;
-  if (route === "/api/form") return data.map(normalizeV2Form) as T;
-  if (route === "/api/permission/request") return data.map((item: any) => ({ ...item, permission: item.action, patterns: item.resources })) as T;
-  return data as T;
+  return runtimeHttpRequest<T>(connection, method, route, body, timeoutMs);
 }
 
 async function assignedAgents(userId: string) {
@@ -581,7 +572,7 @@ async function ensureNativeSession(conversation: Conversation, connection?: Runt
   if (conversation.nativeSessionId) return conversation;
   const active = connection ?? await connectRuntime(conversation.userId);
   const runtimeTitle = `opshelper:${conversation.id}`;
-  const existing = await runtimeRequest<RuntimeSession[]>(active, "GET", "/api/session")
+  const existing = await runtimeRequest<RuntimeSession[]>(active, "GET", "/runtime/sessions")
     .then((sessions) => sessions.find((session) => session.title === runtimeTitle))
     .catch(() => undefined);
   if (existing) {
@@ -601,11 +592,10 @@ async function ensureNativeSession(conversation: Conversation, connection?: Runt
     data: { sessionCreateAttemptId: attemptId },
   });
   try {
-    const session = await runtimeRequest<RuntimeSession>(active, "POST", "/api/session", {
+    const session = await runtimeRequest<RuntimeSession>(active, "POST", "/runtime/sessions", {
       title: runtimeTitle,
-      location: { directory: "/workspace" },
+      directory: "/workspace",
       agent: conversation.lastAgentKey,
-      permissions: nativeTaskPermissions(active.runtime),
     }, 120_000);
     return prisma.conversation.update({
       where: { id: conversation.id },
@@ -617,7 +607,7 @@ async function ensureNativeSession(conversation: Conversation, connection?: Runt
       },
     });
   } catch (error) {
-    const recovered = await runtimeRequest<RuntimeSession[]>(active, "GET", "/api/session")
+    const recovered = await runtimeRequest<RuntimeSession[]>(active, "GET", "/runtime/sessions")
       .then((sessions) => sessions.find((session) => session.title === runtimeTitle))
       .catch(() => undefined);
     if (recovered) {
@@ -876,7 +866,7 @@ export async function searchConversationContent(
           const messages = await runtimeRequest<unknown[]>(
             connection,
             "GET",
-            `/api/session/${conversation.nativeSessionId}/message`,
+            `/runtime/sessions/${conversation.nativeSessionId}/messages`,
             undefined,
             15_000,
           );
@@ -968,12 +958,12 @@ export async function forkConversation(input: {
       const active = await tx.execution.findFirst({
         where: { conversationId: conversation.id, status: { in: [ExecutionStatus.QUEUED, ...activeStatuses] } },
       });
-      const statuses = await runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/api/session/active");
+      const statuses = await runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/runtime/sessions/active");
       const nativeStatus = statuses[conversation.nativeSessionId]?.type;
       if (active || (nativeStatus && nativeStatus !== "idle")) {
         throw new ConversationServiceError("请等待当前对话执行完成后再重新开始", 409);
       }
-      const messages = await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${conversation.nativeSessionId}/message`);
+      const messages = await runtimeRequest<unknown[]>(connection, "GET", `/runtime/sessions/${conversation.nativeSessionId}/messages`);
       const point = conversationForkPoint(messages, input.messageId);
       const boundary = input.replaceExisting
         ? { beforeMessageId: input.messageId, messageCount: point.index }
@@ -988,16 +978,15 @@ export async function forkConversation(input: {
       });
       // Replacing a conversation excludes the selected question. A branch
       // excludes the next user question, preserving the selected full turn.
-      const forked = await runtimeRequest<RuntimeSession>(connection, "POST", `/api/session/${conversation.nativeSessionId}/fork`, {
+      const forked = await runtimeRequest<RuntimeSession>(connection, "POST", `/runtime/sessions/${conversation.nativeSessionId}/fork`, {
         ...(boundary.beforeMessageId ? { before: boundary.beforeMessageId } : {}),
       });
       forkedSessionId = forked.id;
-      const copied = await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${forked.id}/message`);
+      const copied = await runtimeRequest<unknown[]>(connection, "GET", `/runtime/sessions/${forked.id}/messages`);
       if (copied.length !== boundary.messageCount) throw new ConversationServiceError("会话分支的历史边界无法确认", 503);
       if (input.replaceExisting) {
-        await runtimeRequest(connection, "PATCH", `/api/session/${forked.id}`, {
+        await runtimeRequest(connection, "PATCH", `/runtime/sessions/${forked.id}`, {
           title: `opshelper:${conversation.id}`,
-          permissions: nativeTaskPermissions(connection.runtime),
         });
         const replaced = await tx.conversation.update({
           where: { id: conversation.id },
@@ -1023,9 +1012,8 @@ export async function forkConversation(input: {
           lastConfigGeneration: container.appliedGeneration,
         },
       });
-      await runtimeRequest(connection, "PATCH", `/api/session/${forked.id}`, {
+      await runtimeRequest(connection, "PATCH", `/runtime/sessions/${forked.id}`, {
         title: `opshelper:${created.id}`,
-        permissions: nativeTaskPermissions(connection.runtime),
       });
       return {
         conversationId: created.id,
@@ -1036,7 +1024,7 @@ export async function forkConversation(input: {
     });
     if (replacedNativeSessionId) {
       try {
-        await runtimeRequest(connection, "DELETE", `/api/session/${replacedNativeSessionId}`);
+        await runtimeRequest(connection, "DELETE", `/runtime/sessions/${replacedNativeSessionId}`);
       } catch (error) {
         return {
           ...result,
@@ -1051,7 +1039,7 @@ export async function forkConversation(input: {
     // Only the new, uncommitted native session can be removed. The source and
     // its workspace are never reverted or changed by this action.
     if (forkedSessionId) {
-      await runtimeRequest(connection, "DELETE", `/api/session/${forkedSessionId}`).catch(() => undefined);
+      await runtimeRequest(connection, "DELETE", `/runtime/sessions/${forkedSessionId}`).catch(() => undefined);
     }
     throw error;
   }
@@ -1486,11 +1474,11 @@ export function selectRuntimeDescendants(
 
 async function runtimeState(connection: RuntimeConnection, rootSessionId: string): Promise<RuntimeConversationState> {
   const [sessions, statuses, questions, permissions, rootMessages] = await Promise.all([
-    runtimeRequest<RuntimeSession[]>(connection, "GET", "/api/session"),
-    runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/api/session/active"),
-    runtimeRequest<RuntimeRequest[]>(connection, "GET", "/api/form"),
-    runtimeRequest<RuntimeRequest[]>(connection, "GET", "/api/permission/request"),
-    runtimeRequest<unknown[]>(connection, "GET", `/api/session/${rootSessionId}/message`),
+    runtimeRequest<RuntimeSession[]>(connection, "GET", "/runtime/sessions"),
+    runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/runtime/sessions/active"),
+    runtimeRequest<RuntimeRequest[]>(connection, "GET", "/runtime/questions"),
+    runtimeRequest<RuntimeRequest[]>(connection, "GET", "/runtime/permissions"),
+    runtimeRequest<unknown[]>(connection, "GET", `/runtime/sessions/${rootSessionId}/messages`),
   ]);
   const requestSessionIds = [...questions, ...permissions].flatMap((request) => {
     const id = request.sessionID ?? request.sessionId;
@@ -1502,7 +1490,7 @@ async function runtimeState(connection: RuntimeConnection, rootSessionId: string
   ]);
   const children = await Promise.all(descendants.map(async (session) => ({
     session,
-    messages: await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${session.id}/message`),
+    messages: await runtimeRequest<unknown[]>(connection, "GET", `/runtime/sessions/${session.id}/messages`),
     status: statuses[session.id]?.type ?? "idle",
   })));
   const sessionIds = new Set([rootSessionId, ...descendants.map((session) => session.id)]);
@@ -1776,7 +1764,7 @@ async function autoApprovePendingPermissions(
     reply: (sessionId, permissionId) => runtimeRequest(
       connection,
       "POST",
-      `/api/session/${sessionId}/permission/${permissionId}/reply`,
+      `/runtime/sessions/${sessionId}/permissions/${permissionId}/reply`,
       { decision: "once" },
       5_000,
     ),
@@ -2036,13 +2024,10 @@ async function dispatchExecution(execution: Execution) {
     }
     const conversation = await requireOwnedConversation(execution.userId, execution.conversationId);
     const readyConversation = await ensureNativeSession(conversation, connection);
-    await runtimeRequest(connection, "PATCH", `/api/session/${readyConversation.nativeSessionId}`, {
-      permissions: nativeTaskPermissions(connection.runtime),
-    });
-    await runtimeRequest(connection, "POST", `/api/session/${readyConversation.nativeSessionId}/agent`, { agent: current.leadAgentKey });
+    await runtimeRequest(connection, "POST", `/runtime/sessions/${readyConversation.nativeSessionId}/agent`, { agent: current.leadAgentKey });
     const selectedModel = current.model ?? connection.runtime.model;
     const slash = selectedModel.indexOf("/");
-    await runtimeRequest(connection, "POST", `/api/session/${readyConversation.nativeSessionId}/model`, {
+    await runtimeRequest(connection, "POST", `/runtime/sessions/${readyConversation.nativeSessionId}/model`, {
       model: { providerID: selectedModel.slice(0, slash), id: selectedModel.slice(slash + 1) },
     });
 
@@ -2066,7 +2051,7 @@ async function dispatchExecution(execution: Execution) {
     await runtimeRequest(
       connection,
       "POST",
-      `/api/session/${readyConversation.nativeSessionId}/prompt`,
+      `/runtime/sessions/${readyConversation.nativeSessionId}/prompt`,
       executionPromptPayload(current, plannedCollaborators),
       120_000,
     );
@@ -2212,7 +2197,7 @@ async function rejectPendingInteractions(
   state: RuntimeConversationState,
 ) {
   await Promise.all(state.questions.map((question) =>
-    runtimeRequest(connection, "DELETE", `/api/session/${question.sessionID}/form/${question.id}`),
+    runtimeRequest(connection, "DELETE", `/runtime/sessions/${question.sessionID}/questions/${question.id}`).catch(() => undefined),
   ));
   await Promise.all(state.permissions.map(async (permission) => {
     const sessionId = permission.sessionID ?? permission.sessionId;
@@ -2220,7 +2205,7 @@ async function rejectPendingInteractions(
     await runtimeRequest(
       connection,
       "POST",
-      `/api/session/${sessionId}/permission/${permission.id}/reply`,
+      `/runtime/sessions/${sessionId}/permissions/${permission.id}/reply`,
       { decision: "reject" },
     ).catch(() => undefined);
   }));
@@ -2252,9 +2237,8 @@ export async function abortExecution(userId: string, executionId: string, timedO
   try {
     const connection = await connectExistingRuntime(userId);
     const beforeStop = scopeExecutionState(await runtimeState(connection, execution.conversation.nativeSessionId), execution, execution.conversation.nativeSessionId);
-    await runtimeRequest(connection, "DELETE", `/api/session/${execution.conversation.nativeSessionId}/inbox/msg_opshelper_${execution.promptMarker.replaceAll("-", "")}`);
     for (const sessionID of [...beforeStop.sessionIds].reverse()) {
-      await runtimeRequest(connection, "POST", `/api/session/${sessionID}/interrupt?resume=false`);
+      await runtimeRequest(connection, "POST", `/runtime/sessions/${sessionID}/cancel`);
     }
     const pending = await runtimeState(connection, execution.conversation.nativeSessionId);
     await rejectPendingInteractions(connection, pending);
@@ -2298,7 +2282,7 @@ export async function replyConversationQuestion(
     throw new ConversationServiceError("问题已经失效", 409);
   }
   const form = state.questions.find((item) => item.id === requestId)!;
-  await runtimeRequest(connection, "POST", `/api/session/${form.sessionID}/form/${requestId}/reply`, { answer: v2FormAnswer(form, answers) });
+  await runtimeRequest(connection, "POST", `/runtime/sessions/${form.sessionID}/questions/${requestId}/reply`, { answers });
   await prisma.execution.update({
     where: { id: execution.id },
     data: { status: ExecutionStatus.RUNNING, waitingSince: null },
@@ -2325,7 +2309,7 @@ export async function replyConversationPermission(
   await runtimeRequest(
     connection,
     "POST",
-    `/api/session/${sessionId}/permission/${permissionId}/reply`,
+    `/runtime/sessions/${sessionId}/permissions/${permissionId}/reply`,
     { decision: response },
   );
   await prisma.execution.update({
@@ -2512,20 +2496,20 @@ export async function deleteConversation(userId: string, conversationId: string)
       if (!connection || conversation.nativeSessionId !== owned.nativeSessionId) {
         throw new ConversationServiceError("对话状态已变化，请刷新后重试", 409);
       }
-      const sessions = await runtimeRequest<RuntimeSession[]>(connection, "GET", "/api/session");
+      const sessions = await runtimeRequest<RuntimeSession[]>(connection, "GET", "/runtime/sessions");
       const descendants = selectRuntimeDescendants(sessions, conversation.nativeSessionId, [], Number.MAX_SAFE_INTEGER);
       const ids = [conversation.nativeSessionId, ...descendants.map((session) => session.id)];
       const other = await tx.conversation.findFirst({
         where: { userId, id: { not: conversationId }, nativeSessionId: { in: ids } },
       });
       if (other) throw new ConversationServiceError("该对话包含其他对话关联的会话，暂不能安全删除", 409);
-      const statuses = await runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/api/session/active");
+      const statuses = await runtimeRequest<Record<string, { type?: string }>>(connection, "GET", "/runtime/sessions/active");
       if (ids.some((id) => statuses[id] && statuses[id].type !== "idle")) {
         throw new ConversationServiceError("当前对话的智能体仍在执行，结束后才能删除", 409);
       }
       try {
-        // V2 deletes the entire child-session tree with its root.
-        await runtimeRequest(connection, "DELETE", `/api/session/${encodeURIComponent(conversation.nativeSessionId)}`);
+        // Runtime deletes the entire child-session tree with its root.
+        await runtimeRequest(connection, "DELETE", `/runtime/sessions/${encodeURIComponent(conversation.nativeSessionId)}`);
       } catch (error) {
         if (!(error instanceof RuntimeRequestError) || error.statusCode !== 404) throw error;
       }
@@ -2646,7 +2630,7 @@ export async function openConversationEvents(
   const deadline = setTimeout(abort, 15_000);
   const connectedAt = Date.now();
   try {
-    const response = await fetch(`${connection.target}/api/event`, {
+    const response = await fetch(`${connection.target}/runtime/events`, {
       headers: { authorization: connection.authorization, accept: "text/event-stream" },
       signal: controller.signal,
     });
@@ -2657,10 +2641,9 @@ export async function openConversationEvents(
       where: { userId, conversationId },
       select: { id: true },
     }).then((items) => items.map((item) => item.id));
-    // Subscribe first. OpenCode persists the full text only at text-end; the
-    // stream preserves the deltas generated while the initial snapshot loads.
+    // Subscribe first so live deltas emitted during the initial snapshot read are preserved.
     const [messages, executionIds] = await Promise.all([
-      runtimeRequest<unknown[]>(connection, "GET", `/api/session/${conversation.nativeSessionId}/message`),
+      runtimeRequest<unknown[]>(connection, "GET", `/runtime/sessions/${conversation.nativeSessionId}/messages`),
       readExecutionIds(),
     ]);
     const inherited = await visibleHistoryExecutions(userId, messages, []);
@@ -2694,11 +2677,11 @@ export async function openConversationEvents(
         let lastChanged = 0;
         let lastScopeRead = 0;
         for await (const rawEvent of readRuntimeEvents(body)) {
-          const event = normalizeV2Event(rawEvent);
+          const event = rawEvent;
           if (signal.aborted) break;
           if (executionScope?.current && Date.now() - lastScopeRead >= 500) {
             lastScopeRead = Date.now();
-            const scopedMessages = scopeMessages(await runtimeRequest<unknown[]>(connection, "GET", `/api/session/${conversation.nativeSessionId}/message`));
+            const scopedMessages = scopeMessages(await runtimeRequest<unknown[]>(connection, "GET", `/runtime/sessions/${conversation.nativeSessionId}/messages`));
             for (const text of projector.textEvents()) yield conversationEventFrame("text", text);
             for (const operation of operationProjector.update(scopedMessages)) {
               yield conversationEventFrame("operation", operation);

@@ -3,7 +3,7 @@ import { chmod, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } fro
 import path from "node:path";
 import { z } from "zod";
 
-import { getAssignedRuntimeDefinition, type AssignedRuntimeDefinition } from "./agent-service";
+import { getAssignedRuntimeDefinition, type AgentMcpServer, type AssignedRuntimeDefinition } from "./agent-service";
 import {
   getPlatformInstructions,
   getRuntimeModelConfiguration,
@@ -28,6 +28,187 @@ function rewriteSkillName(content: string, name: string) {
   return `${matched[1]}${lines.join("\n")}${matched[3]}${content.slice(matched[0].length)}`;
 }
 
+function dshMcpServerName(agent: string, mcpKey: string) {
+  const raw = `${agent}-${mcpKey}`.replace(/[^A-Za-z0-9_-]/g, "-");
+  if (raw.length <= 32) return raw;
+  const suffix = createHash("sha256").update(`${agent}:${mcpKey}`).digest("hex").slice(0, 8);
+  return `${raw.slice(0, 23)}-${suffix}`;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function splitModelId(fullModel: string) {
+  const slash = fullModel.indexOf("/");
+  if (slash <= 0) {
+    return { provider: "custom", model: fullModel };
+  }
+  return {
+    provider: fullModel.slice(0, slash),
+    model: fullModel.slice(slash + 1),
+  };
+}
+
+function buildDshProviderProjection(modelConfiguration: RuntimeModelConfiguration) {
+  const providers: Record<string, unknown> = {};
+  const credentialRefs: Record<string, string> = {};
+
+  for (const [providerKey, rawProvider] of Object.entries(asRecord(modelConfiguration.provider))) {
+    const providerObj = asRecord(rawProvider);
+    const options = asRecord(providerObj.options);
+    const rawModels = asRecord(providerObj.models);
+    const baseURL = typeof options.baseURL === "string" ? options.baseURL.trim() : "";
+    const apiKey = typeof options.apiKey === "string" ? options.apiKey.trim() : "";
+    const models = Object.entries(rawModels).map(([id, raw]) => {
+      const name = asRecord(raw).name;
+      return {
+        id,
+        name: typeof name === "string" && name.trim() ? name.trim() : id,
+      };
+    });
+    if (!models.length) continue;
+
+    const envKey = providerKey === "custom"
+      ? "OPSHELPER_LLM_API_KEY"
+      : `OPSHELPER_LLM_${providerKey.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY`;
+    if (apiKey) {
+      credentialRefs[envKey] = apiKey;
+    }
+
+    providers[providerKey] = {
+      displayName: typeof providerObj.name === "string" && providerObj.name.trim()
+        ? providerObj.name.trim()
+        : providerKey,
+      api: "openai-completions",
+      ...(baseURL ? { baseURL } : {}),
+      ...(apiKey ? { apiKeyEnv: envKey } : {}),
+      models,
+    };
+  }
+
+  return { providers, credentialRefs };
+}
+
+function buildDshMcpPlugin(agentKeyValue: string, mcpKey: string, cfg: AgentMcpServer) {
+  const serverName = dshMcpServerName(agentKeyValue, mcpKey);
+  const pluginId = `mcp-${serverName}`;
+  const disabled = cfg.enabled === false;
+  if (cfg.type === "local") {
+    return {
+      id: pluginId,
+      name: "@deepseek-ai/dsh-mcp-client",
+      ...(disabled ? { disabled: true } : {}),
+      config: {
+        transport: "stdio",
+        serverName,
+        command: cfg.command[0],
+        args: cfg.command.slice(1),
+        env: cfg.environment ?? {},
+        cwd: cfg.cwd ?? "/workspace",
+        toolCallTimeoutMs: cfg.timeout ?? 30_000,
+        failOnStartupError: false,
+      },
+    };
+  }
+  return {
+    id: pluginId,
+    name: "@deepseek-ai/dsh-mcp-client",
+    ...(disabled ? { disabled: true } : {}),
+    config: {
+      transport: "streamable-http",
+      serverName,
+      url: cfg.url,
+      headers: cfg.headers ?? {},
+      toolCallTimeoutMs: cfg.timeout ?? 30_000,
+      failOnStartupError: false,
+    },
+  };
+}
+
+function buildAgentPresetPlugins(input: {
+  agentKey: string;
+  prompt: string;
+  instructions: string;
+  skills: string[];
+  taskAgentKeys: string[];
+  mcp: Record<string, AgentMcpServer>;
+}) {
+  const combinedPrompt = input.instructions.trim()
+    ? `${input.prompt.trim()}\n\n${input.instructions.trim()}`
+    : input.prompt.trim();
+
+  const plugins: unknown[] = [
+    {
+      id: "persona",
+      name: "@deepseek-ai/dsh-persona",
+      config: {
+        prefix: combinedPrompt,
+        complete: true,
+        includeRuntimeContext: false,
+      },
+    },
+    { id: "time-context", name: "@deepseek-ai/dsh-time-context" },
+    { id: "tool-bash", name: "@deepseek-ai/dsh-tool-bash" },
+    { id: "tool-jobs", name: "@deepseek-ai/dsh-tool-jobs" },
+    { id: "tool-fs", name: "@deepseek-ai/dsh-tool-fs", config: { applyPatch: false } },
+    { id: "tool-fs-search", name: "@deepseek-ai/dsh-tool-fs-search", config: { sampleOverCapGlobResults: false } },
+    { id: "tool-ask-user", name: "@deepseek-ai/dsh-tool-ask-user" },
+    { id: "tool-todo", name: "@deepseek-ai/dsh-tool-todo", config: { allowParallelInProgress: true } },
+    { id: "tool-web", name: "@deepseek-ai/dsh-tool-web", config: { fetch: true, searchTimeoutMs: 60_000 } },
+    {
+      id: "compaction",
+      name: "cordis:group",
+      group: true,
+      isolate: { compaction: true, toolResultPruner: true },
+      config: [
+        { id: "compaction-basic", name: "@deepseek-ai/dsh-compaction-basic" },
+        { id: "command-compact", name: "@deepseek-ai/dsh-command-compact" },
+        {
+          id: "tool-result-pruner",
+          name: "@deepseek-ai/dsh-compaction-tool-result-pruner",
+          config: { thresholdChars: 8192, headChars: 4096, tailChars: 1024 },
+        },
+      ],
+    },
+  ];
+
+  if (input.skills.length > 0) {
+    plugins.push(
+      {
+        id: "skill-filesystem",
+        name: "@deepseek-ai/dsh-skill-filesystem",
+        config: {
+          includeDefaultRoots: false,
+          customSkillDirs: [`/opt/opshelper/config/dsh/skills/${input.agentKey}`],
+          watch: false,
+        },
+      },
+      { id: "tool-skill", name: "@deepseek-ai/dsh-tool-skill" },
+    );
+  }
+
+  if (input.taskAgentKeys.length > 0) {
+    plugins.push({
+      id: "tool-subagent",
+      name: "@deepseek-ai/dsh-tool-subagent",
+      config: {
+        provider: "spawn",
+        toolName: "subagent",
+        allowedAgentPresets: input.taskAgentKeys,
+      },
+    });
+  }
+
+  for (const [mcpKey, cfg] of Object.entries(input.mcp)) {
+    plugins.push(buildDshMcpPlugin(input.agentKey, mcpKey, cfg));
+  }
+
+  return plugins;
+}
+
 export class RuntimeNotConfiguredError extends Error {
   statusCode = 503;
   constructor() {
@@ -37,6 +218,7 @@ export class RuntimeNotConfiguredError extends Error {
 
 export interface ManagedRuntime {
   generation: string;
+  defaultAgentKey?: string;
   agentKeys: string[];
   taskAgentKeys?: string[];
   model: string;
@@ -92,13 +274,18 @@ export async function getRuntimePassword(userId: string, config: AppConfig = loa
 }
 
 export function runtimeAuthorization(password: string) {
-  return `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
+  return `Basic ${Buffer.from(`opshelper:${password}`).toString("base64")}`;
 }
 
-export async function readManagedRuntime(userId: string, generation: string, config: AppConfig = loadConfig()): Promise<ManagedRuntime> {
+export async function readManagedRuntime(
+  userId: string,
+  generation: string,
+  config: AppConfig = loadConfig(),
+): Promise<ManagedRuntime> {
   if (!/^[a-f0-9]{24}$/.test(generation)) throw new RuntimeNotConfiguredError();
   const manifest = z.object({
     generation: z.literal(generation),
+    defaultAgentKey: agentKey.optional(),
     agentKeys: z.array(agentKey),
     taskAgentKeys: z.array(agentKey).optional(),
     model: z.string(),
@@ -129,7 +316,8 @@ export async function prepareManagedRuntime(
   }
   const taskAgentKeys = definition.agents
     .filter((agent) => agent.mode !== "primary")
-    .map((agent) => agent.key);
+    .map((agent) => agent.key)
+    .sort();
   const configuredModels = new Set(modelConfiguration.configuredModels);
   for (const agent of definition.agents) {
     if (agent.model && !configuredModels.has(agent.model)) {
@@ -138,10 +326,12 @@ export async function prepareManagedRuntime(
   }
   const user = getUserPaths(userId, config);
   const digest = createHash("sha256").update(JSON.stringify({
-    version: 13,
+    engine: "dsh",
+    version: 1,
     desiredGeneration: definition.desiredGeneration,
     agents: definition.agents.map((agent) => ({
       key: agent.key,
+      displayName: agent.displayName,
       hash: agent.contentHash,
       description: agent.description,
       mode: agent.mode,
@@ -170,11 +360,11 @@ export async function prepareManagedRuntime(
   for (const directory of [user.workspace, "outputs", "chat-uploads"].map((value, index) => index ? path.join(user.workspace, value) : value)) {
     await mkdir(directory, { recursive: true });
   }
-  for (const directory of ["data", "cache", "state"]) {
-    await mkdir(path.join(user.state, directory), { recursive: true });
-  }
+  await mkdir(path.join(user.state, "dsh-v1"), { recursive: true });
+
   const runtime: ManagedRuntime = {
     generation,
+    defaultAgentKey,
     agentKeys,
     taskAgentKeys,
     model: modelConfiguration.model,
@@ -182,6 +372,7 @@ export async function prepareManagedRuntime(
     password: await getRuntimePassword(userId, config),
     desiredGeneration: definition.desiredGeneration,
   };
+
   const existing = await lstat(destination).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") return null;
     throw error;
@@ -195,18 +386,20 @@ export async function prepareManagedRuntime(
     }
     await assertPlainTree(destination);
     const cached = await readManagedRuntime(userId, generation, config);
-    const configuration = await lstat(path.join(destination, "config", "opencode", "opencode.json"));
+    const overlayFile = await lstat(path.join(destination, "config", "dsh", "overlay.patch.yml"));
     const cachedInstructions = await readFile(
-      path.join(destination, "config", "opencode", "AGENTS.md"),
+      path.join(destination, "config", "dsh", "INSTRUCTIONS.md"),
       "utf8",
     ).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return null;
       throw error;
     });
     const cachedAgents = (await readdir(path.join(destination, "agents"))).sort();
-    if (!configuration.isFile() || configuration.isSymbolicLink() ||
+    if (!overlayFile.isFile() || overlayFile.isSymbolicLink() ||
       cachedInstructions !== (instructions.trim() ? instructions : null) ||
-      cached.model !== runtime.model || cached.desiredGeneration !== runtime.desiredGeneration ||
+      cached.model !== runtime.model ||
+      cached.defaultAgentKey !== runtime.defaultAgentKey ||
+      cached.desiredGeneration !== runtime.desiredGeneration ||
       JSON.stringify(cached.agentKeys) !== JSON.stringify(agentKeys) ||
       JSON.stringify(cached.taskAgentKeys) !== JSON.stringify(taskAgentKeys) ||
       JSON.stringify(cachedAgents) !== JSON.stringify(agentKeys) ||
@@ -215,67 +408,23 @@ export async function prepareManagedRuntime(
     }
     return runtime;
   }
+
   const staging = path.join(releases, `.staging-${randomUUID()}`);
-  await mkdir(path.join(staging, "config", "opencode"), { recursive: true });
+  await mkdir(path.join(staging, "config", "dsh"), { recursive: true });
   try {
-    const task = Object.fromEntries([["*", "deny"], ...taskAgentKeys.map((key) => [key, "allow"])]);
-    const agent: Record<string, unknown> = Object.fromEntries(
-      ["build", "plan", "general", "explore"].map((key) => [key, { disable: true }]),
-    );
-    const mcp: Record<string, unknown> = {};
-    const globalMcpTools: Record<string, boolean> = {};
+    const { providers, credentialRefs } = buildDshProviderProjection(modelConfiguration);
+    const defaultModel = splitModelId(modelConfiguration.model);
+    const presetRows: unknown[] = [];
+
     for (const definitionAgent of definition.agents) {
       const key = definitionAgent.key;
-      const ownSkills = definitionAgent.skills.map((skill) => runtimeSkillName(key, skill));
-      const skillPermission = Object.fromEntries([
-        ["*", "deny"],
-        ...ownSkills.map((skill) => [skill, "allow"]),
-      ]);
-      const ownMcpPatterns: string[] = [];
-      for (const [mcpKey, configuration] of Object.entries(definitionAgent.mcp)) {
-        const runtimeKey = `${key}-${mcpKey}`;
-        const { enabled, timeout, ...server } = configuration;
-        mcp[runtimeKey] = {
-          ...server,
-          disabled: enabled === false,
-          // Keep each MCP operation observable and individually permissioned.
-          codemode: false,
-          ...(timeout ? { timeout: { catalog: timeout, execution: timeout } } : {}),
-          ...(configuration.type === "remote" && configuration.oauth && typeof configuration.oauth === "object" ? {
-            oauth: { client_id: configuration.oauth.clientId, client_secret: configuration.oauth.clientSecret, scope: configuration.oauth.scope },
-          } : {}),
-        };
-        const pattern = `${runtimeKey}_*`;
-        globalMcpTools[pattern] = false;
-        ownMcpPatterns.push(pattern);
-      }
-      const tools = Object.fromEntries([
-        // Code Mode wrappers can return without invoking anything, while
-        // models report success. Prefer observable tools; explicit opt-in
-        // remains available for agents designed to use the execute API.
-        ["execute", false] as const,
-        ...definitionAgent.tools.map((tool) => [tool, true] as const),
-        ...(ownSkills.length ? [["skill", true] as const] : []),
-        ...ownMcpPatterns.map((pattern) => [pattern, true] as const),
-      ]);
-      agent[key] = {
-        description: definitionAgent.description,
-        mode: definitionAgent.mode,
-        prompt: prompts[key],
-        ...(definitionAgent.model ? { model: definitionAgent.model } : {}),
-        ...(Object.keys(tools).length ? { tools } : {}),
-        permission: {
-          external_directory: { "*": "ask", "/tmp": "allow", "/tmp/**": "allow" },
-          task,
-          skill: skillPermission,
-        },
-      };
       const source = definitionAgent.sourceDir;
       await cp(source, path.join(staging, "agents", key), { recursive: true, dereference: false });
+
       for (const skill of definitionAgent.skills) {
         const runtimeName = runtimeSkillName(key, skill);
         const sourceSkill = path.join(source, "skills", skill);
-        const destinationSkill = path.join(staging, "config", "opencode", "skills", runtimeName);
+        const destinationSkill = path.join(staging, "config", "dsh", "skills", key, runtimeName);
         await cp(sourceSkill, destinationSkill, { recursive: true, dereference: false });
         const skillDocument = path.join(destinationSkill, "SKILL.md");
         await writeFile(
@@ -283,31 +432,72 @@ export async function prepareManagedRuntime(
           rewriteSkillName(await readFile(skillDocument, "utf8"), runtimeName),
         );
       }
+
+      presetRows.push({
+        id: `preset-${key}`,
+        name: "@deepseek-ai/dsh-agent-preset",
+        config: {
+          id: key,
+          name: definitionAgent.displayName || key,
+          description: definitionAgent.description,
+          plugins: buildAgentPresetPlugins({
+            agentKey: key,
+            prompt: prompts[key],
+            instructions,
+            skills: definitionAgent.skills,
+            taskAgentKeys,
+            mcp: definitionAgent.mcp,
+          }),
+        },
+      });
     }
-    const opencode = {
-      $schema: "https://opencode.ai/config.json", model: modelConfiguration.model,
-      small_model: modelConfiguration.model,
-      default_agent: defaultAgentKey, provider: modelConfiguration.provider,
-      share: "disabled",
-      // V2 moves this setting under experimental. Keep the same observable
-      // descendant limit as the platform execution monitor.
-      experimental: { subagent_depth: 24 },
-      ...(Object.keys(mcp).length ? { mcp: { servers: mcp }, tools: globalMcpTools } : {}),
-      agent,
+
+    // DSH credentials file mounted read-only; never exposed in process.env.
+    // dsh-credentials-local strictly enforces mode 0600 (owner-only).
+    const credentialsPath = path.join(staging, "config", "dsh", "credentials.yaml");
+    const credentialsDoc = {
+      version: 1,
+      refs: credentialRefs,
     };
-    await writeFile(path.join(staging, "config", "opencode", "opencode.json"), JSON.stringify(opencode, null, 2));
+    await writeFile(credentialsPath, `${JSON.stringify(credentialsDoc, null, 2)}\n`, { mode: 0o600 });
+    await chmod(credentialsPath, 0o600);
+
+    // JSON is a strict subset of YAML 1.2 and parsed cleanly by js-yaml + entryListSchema.
+    // Note: `credentials.yaml` is synced into writable `$DSH_HOME/.credentials.yaml` by
+    // the runtime entrypoint before Cordis boot so `dsh-client-connection` can lock it
+    // under a read-only root filesystem.
+    const overlayPatch: unknown[] = [
+      ...(Object.keys(providers).length > 0
+        ? [{ id: "llm-pi-ai", config: { providers } }]
+        : []),
+      {
+        id: "agent-default-model",
+        config: {
+          provider: defaultModel.provider,
+          model: defaultModel.model,
+        },
+      },
+      { insert: presetRows },
+    ];
+    await writeFile(
+      path.join(staging, "config", "dsh", "overlay.patch.yml"),
+      `${JSON.stringify(overlayPatch, null, 2)}\n`,
+    );
+
     if (instructions.trim()) {
-      await writeFile(path.join(staging, "config", "opencode", "AGENTS.md"), instructions);
+      await writeFile(path.join(staging, "config", "dsh", "INSTRUCTIONS.md"), instructions);
     }
-    await writeFile(path.join(staging, "config", "opencode", ".gitignore"), "node_modules\npackage.json\nbun.lock\n");
+
     await writeFile(path.join(staging, "manifest.json"), JSON.stringify({
       generation,
+      defaultAgentKey,
       agentKeys,
       taskAgentKeys,
       model: modelConfiguration.model,
       configuredModels: modelConfiguration.configuredModels,
       desiredGeneration: definition.desiredGeneration,
     }));
+
     try {
       await rename(staging, destination);
     } catch (error) {

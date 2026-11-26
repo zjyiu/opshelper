@@ -24,7 +24,7 @@ async function acquireTransactionLock(
 /**
  * Serialize user execution admission with assignment changes across API
  * processes. Callbacks must stay short; long-running model work starts only
- * after OpenCode has acknowledged the prompt.
+ * after the runtime has acknowledged the prompt.
  */
 export async function withUserConfigLock<T>(
   userId: string,

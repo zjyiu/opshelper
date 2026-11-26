@@ -21,6 +21,6 @@ target "web" {
 }
 
 target "runtime" {
-  context = "deploy/opencode-runtime"
-  tags    = ["opshelper/opencode-runtime:2.0.27"]
+  context = "deploy/dsh-runtime"
+  tags    = ["opshelper/dsh-runtime:0.2.2-rc.5-r1"]
 }

@@ -40,7 +40,7 @@ const RESERVED_AGENT_KEYS = new Set([
   ...Array.from({ length: 9 }, (_, index) => `com${index + 1}`),
   ...Array.from({ length: 9 }, (_, index) => `lpt${index + 1}`),
 ]);
-const RESERVED_PATH_PARTS = new Set([".git", ".opencode", "node_modules"]);
+const RESERVED_PATH_PARTS = new Set([".git", ".dsh", "node_modules"]);
 const MCP_KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
 const stringMapSchema = z.record(z.string().min(1).max(128), z.string().max(8192));
@@ -146,7 +146,7 @@ export function assertValidAgentKey(rawKey: string): string {
     throw new AgentServiceError("Agent key 必须以小写字母开头，仅允许小写字母、数字和连字符，长度不超过 64");
   }
   if (RESERVED_AGENT_KEYS.has(key)) {
-    throw new AgentServiceError(`Agent key「${key}」是 OpenCode 保留名`);
+    throw new AgentServiceError(`Agent key「${key}」是运行时保留名`);
   }
   return key;
 }

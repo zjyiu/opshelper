@@ -210,7 +210,7 @@ async function fixture() {
   return { dataRoot, fake, service };
 }
 
-test("Agent key rejects traversal and OpenCode reserved names", () => {
+test("Agent key rejects traversal and runtime reserved names", () => {
   assert.throws(() => assertValidAgentKey("../network"), AgentServiceError);
   assert.throws(() => assertValidAgentKey("1-network"), /小写字母开头/);
   assert.throws(() => assertValidAgentKey("build"), /保留名/);

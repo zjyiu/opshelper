@@ -147,7 +147,7 @@ async function stopIdleContainer(container: {
         userId: container.userId,
         containerId: container.id,
         kind: "stop",
-        detail: `Idle timeout exceeded ${idleTimeoutMinutes} minutes, worker stopped the opencode container.`,
+        detail: `Idle timeout exceeded ${idleTimeoutMinutes} minutes, worker stopped the runtime container.`,
       },
     });
   } finally {

@@ -67,7 +67,7 @@ def validated_members(archive):
 
 def is_empty_prepared_root(root):
     allowed = {
-        Path('postgres'), Path('agents'), Path('config'), Path('config/opencode'),
+        Path('postgres'), Path('agents'), Path('config'), Path('config/runtime'),
         Path('users'), Path('backups'),
     }
     for item in root.rglob('*'):
@@ -81,7 +81,8 @@ def deployment_images(config):
     # change between releases and must not invalidate an otherwise exact backup.
     names = ['postgres', 'api', 'worker', 'web', 'nginx']
     images = {name: config['services'][name]['image'] for name in names}
-    images['runtime'] = config['services']['api']['environment']['OPENCODE_DOCKER_IMAGE']
+    api_env = config['services']['api']['environment']
+    images['runtime'] = api_env['RUNTIME_DOCKER_IMAGE']
     return images
 
 
@@ -178,7 +179,7 @@ def init(args):
         'OPSHELPER_HTTP_HOST': '127.0.0.1', 'OPSHELPER_HTTP_PORT': str(args.port),
         'OPSHELPER_SESSION_COOKIE_NAME': args.project.replace('-', '_') + '_session',
         'OPSHELPER_SSO_ENCRYPTION_KEY': secrets.token_hex(32),
-        'OPENCODE_DOCKER_IMAGE': 'opshelper/opencode-runtime:2.0.27',
+        'RUNTIME_DOCKER_IMAGE': 'opshelper/dsh-runtime:0.2.2-rc.5-r1',
     }
     # Compose interpolation is disabled by single quotes; reject newlines/quotes in values.
     if any("'" in value or '\n' in value or '\r' in value for value in values.values()):

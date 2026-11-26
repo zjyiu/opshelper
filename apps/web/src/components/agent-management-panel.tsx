@@ -1579,7 +1579,7 @@ export function AgentManagementPanel({
                         </div>
                         <footer className="agent-file-pane-foot">
                           保存前检查模型、工具、Skill、脚本和 MCP；每个 Skill 仅授权给所属智能体，MCP 服务名会在运行时加上智能体 key 前缀。
-                          {selectedFile === "mcp.json" ? " mcp.json 顶层是服务名到 OpenCode MCP 配置的对象；凭据会进入获配用户的只读运行时配置。" : ""}
+                          {selectedFile === "mcp.json" ? " mcp.json 顶层是服务名到 MCP 配置的对象；凭据会进入获配用户的只读运行时配置。" : ""}
                         </footer>
                       </section>
                     </div>

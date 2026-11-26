@@ -47,13 +47,13 @@ class BackupValidation(unittest.TestCase):
     def test_restore_accepts_only_the_empty_init_skeleton(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ['postgres', 'agents', 'config/opencode', 'users', 'backups']:
+            for name in ['postgres', 'agents', 'config/runtime', 'users', 'backups']:
                 (root / name).mkdir(parents=True, exist_ok=True)
             self.assertTrue(ops.is_empty_prepared_root(root))
             (root / 'users/u').mkdir()
             self.assertFalse(ops.is_empty_prepared_root(root))
             (root / 'users/u').rmdir()
-            (root / 'config/opencode/provider.json').write_text('{}')
+            (root / 'config/runtime/provider.json').write_text('{}')
             self.assertFalse(ops.is_empty_prepared_root(root))
 
 class DeploymentCommands(unittest.TestCase):
@@ -64,7 +64,7 @@ class DeploymentCommands(unittest.TestCase):
 
     def test_backup_image_identity_ignores_maintenance_service_names(self):
         services = {name: {'image': name + ':release'} for name in ['postgres', 'api', 'worker', 'web', 'nginx']}
-        services['api']['environment'] = {'OPENCODE_DOCKER_IMAGE': 'runtime:release'}
+        services['api']['environment'] = {'RUNTIME_DOCKER_IMAGE': 'runtime:release'}
         services['bootstrap'] = {'image': services['api']['image']}
         images = ops.deployment_images({'services': services})
         self.assertEqual(set(images), {'postgres', 'api', 'worker', 'web', 'nginx', 'runtime'})

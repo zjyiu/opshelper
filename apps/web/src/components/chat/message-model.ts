@@ -1,8 +1,8 @@
 /**
- * Normalizes opencode message/part shapes into a stable model the chat UI can
- * render. opencode's exact event payloads vary by version, so every accessor
+ * Normalizes runtime message/part shapes into a stable model the chat UI can
+ * render. Exact event payloads may vary by version, so every accessor
  * is defensive — see the opshelper plan's "待确认" note about confirming the schema
- * against a live `opencode serve`.
+ * against the runtime server.
  */
 
 export type ChatRole = "user" | "assistant";
@@ -30,7 +30,7 @@ export interface ChatMessage {
   role: ChatRole;
   order: number;
   parts: ChatPart[];
-  // 该轮失败时 opencode 挂在 message info 上的 error（原始对象，渲染时再转文案）。
+  // 该轮失败时运行时挂在 message info 上的 error（原始对象，渲染时再转文案）。
   // 留在模型里，失败的一轮才能在对话流里留痕，而不是只弹一条易被清掉的 notice。
   error?: unknown;
 }

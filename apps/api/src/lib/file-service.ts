@@ -24,7 +24,7 @@ import { loadConfig } from "./config";
 import { assertSafeUserId, getUserPaths } from "./data-paths";
 
 const config = loadConfig();
-const WORKSPACE_MOUNT_PATH = config.opencodeDirectory;
+const WORKSPACE_MOUNT_PATH = config.runtimeDirectory;
 
 export interface FileInfo {
   name: string;
@@ -49,7 +49,7 @@ export function getUserDataRoot(userId: string): string {
   return getUserPaths(userId, config).workspace;
 }
 
-// OpenCode's persistent state stays outside the workspace, so the file manager
+// Runtime persistent state stays outside the workspace, so the file manager
 // cannot expose it and a runtime rebuild does not erase conversation history.
 export function getUserStateRoot(userId: string): string {
   return getUserPaths(userId, config).state;
@@ -223,7 +223,7 @@ export async function ensureUserDataDir(userId: string): Promise<string> {
 }
 
 /**
- * Ensure the per-user opencode state dir exists on the host before a container
+ * Ensure the per-user runtime state dir exists on the host before a container
  * binds it. Created by the api (host user), so the bound history DB stays
  * host-user-owned rather than root-created by the docker daemon.
  */
@@ -239,8 +239,8 @@ export async function ensureUserStateDir(userId: string): Promise<string> {
  * mounted into user runtimes; phase 3 will project approved subsets into each
  * user's managed release directory.
  */
-export async function ensureOpencodeConfigDir(): Promise<string> {
-  const root = config.opencodeConfigPath;
+export async function ensureRuntimeConfigDir(): Promise<string> {
+  const root = config.runtimeConfigPath;
   await mkdir(root, { recursive: true });
   return root;
 }
@@ -766,7 +766,7 @@ export const CHAT_UPLOAD_DIR_NAME = "chat-uploads";
 
 /**
  * Prune chat-composer uploads older than `ttlHours` across every user's
- * `chat-uploads/` staging folder. opencode never stages these itself — they
+ * `chat-uploads/` staging folder. The runtime never stages these itself — they
  * exist only because we need a real on-disk file behind each `file://` prompt
  * part — so the api owns their lifecycle. Best-effort: a failure on one user's
  * folder never aborts the others. Returns the number of entries removed.

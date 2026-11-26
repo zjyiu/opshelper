@@ -18,11 +18,11 @@ description: 为 opshelper 制作 Linux x86_64 离线镜像压缩包和 Markdown
 
 ## 先核实当前版本
 
-从本技能所在项目定位仓库，核实用户指定路径与当前工作区。读取实际 `AGENTS.md`、根 `docker-compose.yml`、`.env.example`、`Dockerfile`、`deploy/opencode-runtime/Dockerfile` 及其 `requirements.txt`、相关 Prisma 迁移和 `docs/guide/` 文档。升级另读 seed、容器生命周期和现有备份恢复实现。
+从本技能所在项目定位仓库，核实用户指定路径与当前工作区。读取实际 `AGENTS.md`、根 `docker-compose.yml`、`.env.example`、`Dockerfile`、`deploy/dsh-runtime/Dockerfile` 及其 `requirements.txt`、相关 Prisma 迁移和 `docs/guide/` 文档。升级另读 seed、容器生命周期和现有备份恢复实现。
 
 使用当前文件与 Docker 实际状态作判断，不能把 2026-09-17 的镜像标签、数据库版本、服务数、端口或本机生产路径当永久默认值。源文件缺失时先获得本次版本的配置/源码/清单，不根据旧笔记编造可执行升级命令。不要打印 `.env`、模型密钥或展开后的含密配置。
 
-当前架构作为检查起点：API、Web、Worker、OpenCode runtime、PostgreSQL、nginx 共六类镜像；`postgres-init`、`migrate` 复用镜像。动态用户容器由 API 创建，不在 Compose 服务列表中。技能示例位于 `examples/opencode-config/`，不自动进入部署；运行数据在宿主 data 的 agents、config、users、postgres 等目录中。
+当前架构作为检查起点：API、Web、Worker、DeepSeek Harness (`dsh`) runtime、PostgreSQL、nginx 共六类镜像；`postgres-init`、`migrate` 复用镜像。动态用户容器由 API 创建，不在 Compose 服务列表中。运行数据在宿主 data 的 agents、config、users、postgres 等目录中。
 
 ## 贯穿所有场景的约束
 

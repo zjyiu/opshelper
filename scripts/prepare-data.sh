@@ -18,11 +18,11 @@ umask 027
 mkdir -p \
   "$data_root/postgres" \
   "$data_root/agents" \
-  "$data_root/config/opencode" \
+  "$data_root/config/runtime" \
   "$data_root/users" \
   "$data_root/backups"
 
-for required in postgres agents config config/opencode users backups; do
+for required in postgres agents config config/runtime users backups; do
   target="$data_root/$required"
   if [[ ! -d "$target" || -L "$target" ]]; then
     echo "数据路径必须是真实目录，不能是符号链接：$target" >&2
@@ -31,7 +31,7 @@ for required in postgres agents config config/opencode users backups; do
 done
 
 chmod 750 "$data_root" "$data_root/agents" "$data_root/config" \
-  "$data_root/config/opencode" "$data_root/users"
+  "$data_root/config/runtime" "$data_root/users"
 # PostgreSQL 目录会在容器启动前由 postgres-init 收敛为 999:999、0700。
 # 这里不重复 chmod，避免已启动过的部署再次执行本脚本时因目录归属变化而失败。
 chmod 700 "$data_root/backups"

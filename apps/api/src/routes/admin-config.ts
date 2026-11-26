@@ -260,7 +260,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance) {
   registerSsoTokenRoute(app);
   registerSsoSettingsRoutes(app);
 
-  app.get("/v1/admin/opencode/models", async (request, reply) => {
+  app.get("/v1/admin/runtime/models", async (request, reply) => {
     if (!await requireAdmin(request, reply)) return;
     try {
       return await getModelSettings();
@@ -269,7 +269,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/v1/admin/opencode/models/discover", async (request, reply) => {
+  app.post("/v1/admin/runtime/models/discover", async (request, reply) => {
     if (!await requireAdmin(request, reply)) return;
     const parsed = modelDiscoverBodySchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "请先填写合法的接口地址 (baseURL)" });
@@ -280,7 +280,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance) {
     }
   });
 
-  app.put("/v1/admin/opencode/models", async (request, reply) => {
+  app.put("/v1/admin/runtime/models", async (request, reply) => {
     if (!await requireAdmin(request, reply)) return;
     const parsed = modelSettingsBodySchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "请求参数不合法" });
@@ -307,7 +307,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance) {
     }
   });
 
-  app.get("/v1/admin/opencode/instructions", async (request, reply) => {
+  app.get("/v1/admin/runtime/instructions", async (request, reply) => {
     if (!await requireAdmin(request, reply)) return;
     return {
       content: await getPlatformInstructions(),
@@ -315,7 +315,7 @@ export async function registerAdminConfigRoutes(app: FastifyInstance) {
     };
   });
 
-  app.put("/v1/admin/opencode/instructions", async (request, reply) => {
+  app.put("/v1/admin/runtime/instructions", async (request, reply) => {
     if (!await requireAdmin(request, reply)) return;
     const parsed = platformInstructionsBodySchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ message: "请求参数不合法" });

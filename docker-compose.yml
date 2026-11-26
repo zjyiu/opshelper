@@ -38,7 +38,7 @@ services:
     command: ["npm", "run", "db:migrate"]
     environment:
       DATABASE_URL: postgresql://opshelper:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/opshelper
-      OPENCODE_DOCKER_IMAGE: ${OPENCODE_DOCKER_IMAGE:-opshelper/opencode-runtime:2.0.27}
+      RUNTIME_DOCKER_IMAGE: ${RUNTIME_DOCKER_IMAGE:-opshelper/dsh-runtime:0.2.2-rc.5-r1}
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,7 +51,7 @@ services:
     environment:
       DATABASE_URL: postgresql://opshelper:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/opshelper
       OPSHELPER_ADMIN_PASSWORD: ${OPSHELPER_ADMIN_PASSWORD:-}
-      OPENCODE_DOCKER_IMAGE: ${OPENCODE_DOCKER_IMAGE:-opshelper/opencode-runtime:2.0.27}
+      RUNTIME_DOCKER_IMAGE: ${RUNTIME_DOCKER_IMAGE:-opshelper/dsh-runtime:0.2.2-rc.5-r1}
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,13 +75,13 @@ services:
       DATA_ROOT: /data
       # 即使传入 API，这仍是 Docker 创建每用户 bind 时使用的宿主路径；不能写 /data。
       DATA_ROOT_HOST: ${DATA_ROOT_HOST:?set DATA_ROOT_HOST to the absolute host data directory}
-      OPENCODE_DOCKER_IMAGE: ${OPENCODE_DOCKER_IMAGE:-opshelper/opencode-runtime:2.0.27}
-      OPENCODE_DOCKER_PORT: 4096
-      OPENCODE_WORKING_DIR: /workspace
-      OPENCODE_RUNTIME_UID: ${OPSHELPER_UID:-1000}
-      OPENCODE_RUNTIME_GID: ${OPSHELPER_GID:-1000}
-      OPENCODE_RUNTIME_MEMORY_MB: ${OPENCODE_RUNTIME_MEMORY_MB:-2048}
-      OPENCODE_RUNTIME_CPUS: ${OPENCODE_RUNTIME_CPUS:-2}
+      RUNTIME_DOCKER_IMAGE: ${RUNTIME_DOCKER_IMAGE:-opshelper/dsh-runtime:0.2.2-rc.5-r1}
+      RUNTIME_DOCKER_PORT: 4096
+      RUNTIME_WORKING_DIR: /workspace
+      RUNTIME_UID: ${OPSHELPER_UID:-1000}
+      RUNTIME_GID: ${OPSHELPER_GID:-1000}
+      RUNTIME_MEMORY_MB: ${RUNTIME_MEMORY_MB:-2048}
+      RUNTIME_CPUS: ${RUNTIME_CPUS:-2}
       OPSHELPER_DOCKER_NETWORK: ${COMPOSE_PROJECT_NAME:-opshelper}-runtime
       DOCKER_SOCKET_PATH: /var/run/docker.sock
       OPSHELPER_SESSION_COOKIE_NAME: ${OPSHELPER_SESSION_COOKIE_NAME:-opshelper_session}
@@ -165,7 +165,7 @@ services:
     restart: unless-stopped
     environment:
       OPSHELPER_API_INTERNAL_URL: http://api:4000
-      OPENCODE_WORKING_DIR: /workspace
+      RUNTIME_WORKING_DIR: /workspace
       OPSHELPER_SESSION_COOKIE_NAME: ${OPSHELPER_SESSION_COOKIE_NAME:-opshelper_session}
     depends_on:
       api:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""开发环境 V1 -> V2 切换；默认只预览，保留账号、配置和工作文件。"""
+"""旧运行时 -> DeepSeek Harness (dsh) 运行时切换；默认只预览，保留账号、配置和工作文件。"""
 import argparse
 import json
 import os
@@ -11,7 +11,7 @@ from opshelper import Deployment, REPO, run
 RESET_SQL = '''BEGIN;
 DELETE FROM "Conversation";
 DELETE FROM "ScheduleRun";
-UPDATE "Schedule" SET status='PAUSED', "statusReason"='OpenCode 2 切换后请重新确认并启用';
+UPDATE "Schedule" SET status='PAUSED', "statusReason"='DeepSeek Harness 运行时切换后请重新确认并启用';
 UPDATE "ContainerInstance" SET status='STOPPED', "dockerContainerId"=NULL,
   "activeExecutionId"=NULL, "executionLeaseOwner"=NULL, "executionLeaseExpiresAt"=NULL,
   "executionRecoveryRequired"=false, "executionRecoveryReason"=NULL,
@@ -21,30 +21,42 @@ UPDATE "ContainerInstance" SET status='STOPPED', "dockerContainerId"=NULL,
   "desiredGeneration"="desiredGeneration"+1;
 COMMIT;'''
 
+PROBE_SCRIPT = (
+    "const fs = require('fs');"
+    "const p = JSON.parse(fs.readFileSync('/opt/dsh-runtime/package.json', 'utf8'));"
+    "const dsh = p.dependencies && p.dependencies['@deepseek-ai/dsh'];"
+    "if (!dsh || !fs.existsSync('/opt/dsh-runtime/src/server.mjs')) process.exit(1);"
+    "console.log('dsh-runtime ' + dsh);"
+)
+
 
 def cutover(args):
     deployment = Deployment(args)
-    # config is included in deployment backups, so a restored V2 installation
+    # config is included in deployment backups, so a restored DSH installation
     # cannot accidentally run the destructive first-cutover step again.
-    marker = deployment.root / 'config' / '.opencode2-cutover.json'
+    marker = deployment.root / 'config' / '.dsh-cutover.json'
     if marker.exists():
-        print('此数据目录已切换到 V2，不重复清空会话。')
+        print('此数据目录已切换到 DeepSeek Harness 运行时，不重复清空会话。')
         return
     counts = deployment.sql('SELECT json_build_object(\'conversations\', (SELECT count(*) FROM "Conversation"), '
                             '\'executions\', (SELECT count(*) FROM "Execution"), '
                             '\'schedules\', (SELECT count(*) FROM "Schedule"))')
     print(f'目标部署：{deployment.project}；数据目录：{deployment.root}')
     print(f'将删除旧会话及执行记录、调度历史，并暂停定时任务：{counts}')
-    print('保留账号、智能体、模型配置、工作文件以及旧 V1 状态目录；V2 使用 state/v2。')
+    print('保留账号、智能体、模型配置、工作文件以及旧状态目录；DeepSeek Harness 使用 state/dsh-v1。')
     if not args.discard_history:
         print('仅预览。执行需显式添加 --discard-history。')
         return
     deployment.verify_bind()
-    image = deployment.config['services']['api']['environment']['OPENCODE_DOCKER_IMAGE']
-    version = run(['docker', 'run', '--rm', '--network', 'none', '--tmpfs', '/state:mode=1777',
-                   '--tmpfs', '/tmp:mode=1777', image, 'opencode2', '--version'], capture=True).decode().strip()
-    if version != 'opencode v2.0.27':
-        raise ValueError('配置的执行镜像不是已验证的 OpenCode 2.0.27')
+    api_env = deployment.config['services']['api']['environment']
+    image = api_env['RUNTIME_DOCKER_IMAGE']
+    version = run([
+        'docker', 'run', '--rm', '--network', 'none',
+        '--entrypoint', 'node', image, '-e', PROBE_SCRIPT,
+    ], capture=True).decode().strip()
+    parts = version.split()
+    if len(parts) < 2 or parts[0] != 'dsh-runtime':
+        raise ValueError('配置的执行镜像不是有效的 DeepSeek Harness 运行时镜像')
     deployment.dc('stop', 'nginx', 'web', 'worker', 'api')
     pending = int(deployment.sql('SELECT count(*) FROM "Execution" WHERE status IN '
                                  "('QUEUED','DISPATCHING','RUNNING','WAITING_INPUT')"))
@@ -56,8 +68,11 @@ def cutover(args):
             run(['docker', 'stop', container['Id']])
         run(['docker', 'rm', container['Id']])
     deployment.sql(RESET_SQL)
-    marker.write_text(json.dumps({'version': 2, 'runtime': version,
-                                 'completedAt': datetime.now(timezone.utc).isoformat()}, indent=2) + '\n')
+    marker.write_text(json.dumps({
+        'runtime': 'dsh',
+        'version': version,
+        'completedAt': datetime.now(timezone.utc).isoformat(),
+    }, indent=2) + '\n')
     print('数据切换完成；服务保持停止。用新应用镜像执行 scripts/opshelper.py up，不运行 bootstrap。')
 
 

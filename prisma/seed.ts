@@ -4,12 +4,12 @@ import { Prisma, PrismaClient } from "@prisma/client";
 
 import { hashPassword } from "../apps/api/src/lib/password";
 
-const defaultOpencodeRuntimeImage = "opshelper/opencode-runtime:2.0.27";
+const defaultRuntimeImage = "opshelper/dsh-runtime:0.2.2-rc.5-r1";
 
 export function resolveSeedContainerImage(
-  env: Pick<NodeJS.ProcessEnv, "OPENCODE_DOCKER_IMAGE">,
+  env: Pick<NodeJS.ProcessEnv, "RUNTIME_DOCKER_IMAGE">,
 ) {
-  return env.OPENCODE_DOCKER_IMAGE?.trim() || defaultOpencodeRuntimeImage;
+  return env.RUNTIME_DOCKER_IMAGE?.trim() || defaultRuntimeImage;
 }
 
 export function resolveInitialAdminPassword(env: Pick<NodeJS.ProcessEnv, "OPSHELPER_ADMIN_PASSWORD">) {

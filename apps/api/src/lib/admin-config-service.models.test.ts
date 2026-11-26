@@ -8,7 +8,7 @@ import { test } from "node:test";
 // admin-config-service 通过 config 单例读取 DATA_ROOT，必须在导入前设置。
 const DATA_ROOT = mkdtempSync(path.join(tmpdir(), "opshelper-models-"));
 process.env.DATA_ROOT = DATA_ROOT;
-const CONFIG_ROOT = path.join(DATA_ROOT, "config", "opencode");
+const CONFIG_ROOT = path.join(DATA_ROOT, "config", "runtime");
 
 let cachedService: typeof import("./admin-config-service") | null = null;
 async function service() {
@@ -16,7 +16,7 @@ async function service() {
   return cachedService;
 }
 
-const CONFIG_FILE = path.join(CONFIG_ROOT, "opencode.json");
+const CONFIG_FILE = path.join(CONFIG_ROOT, "runtime.json");
 const GLOBAL_INSTRUCTIONS_FILE = path.join(CONFIG_ROOT, "AGENTS.md");
 const PLATFORM_INSTRUCTIONS_FILE = path.join(CONFIG_ROOT, "PLATFORM.md");
 
@@ -39,7 +39,6 @@ test("退役浏览器 MCP 时保留其他配置且可重复执行", async () => 
   await writeFile(
     CONFIG_FILE,
     JSON.stringify({
-      $schema: "https://opencode.ai/config.json",
       tools: { "browser_*": false, "github_*": false },
       mcp: {
         browser: { type: "remote", url: "http://localhost:4097/mcp" },
@@ -73,7 +72,6 @@ test("保存模型组写入 provider.custom 并同步顶层默认模型", async 
   await writeFile(
     CONFIG_FILE,
     JSON.stringify({
-      $schema: "https://opencode.ai/config.json",
       model: "custom/old-default",
       small_model: "custom/old-default",
       agent: { assistant: { description: "小信助理" } },
@@ -229,7 +227,7 @@ test("全局规则原样保存并在空内容时删除", async () => {
   assert.equal(await readFile(GLOBAL_INSTRUCTIONS_FILE, "utf8"), "工作目录是 /workspace。\n");
   assert.equal(await getGlobalInstructions(), "工作目录是 /workspace。\n");
   const effective = await getPlatformInstructions();
-  assert.match(effective, /# 可视化图表/);
+  assert.match(effective, /# 图片与图表生成/);
   assert.match(effective, /工作目录是 \/workspace/);
 
   assert.equal(await updateGlobalInstructions("  \n"), "");

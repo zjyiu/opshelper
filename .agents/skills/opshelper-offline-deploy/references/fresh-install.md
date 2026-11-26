@@ -9,7 +9,7 @@
 - `docker load -i images.tar.gz` 和实际六个标签的架构核对。
 - 复制 `.env.example` 到权限 600 的 `.env`，生成并填写数据库密码及首次管理员密码；数据库密码使用 URL 安全字符，管理员密码强度按当前 seed 要求核对。不要在最终回复贴出实际密码。
 - 填写宿主 `DATA_ROOT_HOST`、非 root 运行 UID/GID、`stat -c '%g' /var/run/docker.sock` 的组 ID、监听 IP/端口及唯一项目名。
-- 按当前数据结构建立 postgres、agents、config/opencode、users、backups 等目录。应用目录归属和运行 UID/GID 一致；postgres 根目录由 init 服务设置权限，不能对整套已用数据递归 chown。
+- 按当前数据结构建立 postgres、agents、config/runtime、users、backups 等目录。应用目录归属和运行 UID/GID 一致；postgres 根目录由 init 服务设置权限，不能对整套已用数据递归 chown。
 - `docker-compose --env-file .env config --quiet`。
 - `docker-compose --env-file .env up -d --no-build --pull never`。
 - `docker-compose --env-file .env ps -a`、迁移日志、入口 health 检查及浏览器登录。

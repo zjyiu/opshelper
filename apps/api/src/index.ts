@@ -57,7 +57,7 @@ async function bootstrap() {
   await retireBrowserMcpConfig()
     .then((changed) => {
       if (changed) {
-        app.log.info("Removed retired browser MCP entries from shared opencode config.");
+        app.log.info("Removed retired browser MCP entries from shared runtime config.");
       }
     })
     .catch((error) => {

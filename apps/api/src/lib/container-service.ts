@@ -1,4 +1,4 @@
-import { v2List, v2Request } from "./opencode-v2";
+import { runtimeHttpRequest } from "./runtime-client";
 import Docker from "dockerode";
 import { isDockerNotFound, stopDockerContainerIfRunning as stopRuntimeIfRunning } from "@opshelper/shared";
 import { randomUUID } from "node:crypto";
@@ -17,7 +17,7 @@ import {
   lifecycleLockTtlMs,
   startContainerIfNeeded,
 } from "./container-lifecycle";
-import { buildContainerCreateOptions, isStaleRuntime } from "./opencode-container-runtime";
+import { buildContainerCreateOptions, isStaleRuntime } from "./dsh-container-runtime";
 import { getRuntimePassword, prepareManagedRuntime, readManagedRuntime, runtimeAuthorization, type ManagedRuntime } from "./managed-runtime";
 import { loadConfig } from "./config";
 import { prisma } from "./prisma";
@@ -103,7 +103,7 @@ async function resolveDockerContainer(record: ContainerInstance) {
 }
 
 /**
- * Resolve an image tag (e.g. `opshelper/opencode-runtime:latest`) to the image ID it
+ * Resolve an image tag (e.g. `opshelper/dsh-runtime:0.2.2-rc.5-r1`) to the image ID it
  * currently points at. Returns null when the tag isn't present locally — callers
  * treat that as "can't tell, leave the container alone" so a missing/not-yet-
  * loaded image never triggers a destructive recreate.
@@ -120,7 +120,7 @@ async function buildExpectedContainerCreateOptions(record: ContainerWithUser, su
   const runtime = suppliedRuntime ?? await prepareManagedRuntime(record.userId);
   return {
     runtime,
-    options: buildContainerCreateOptions({ record: { ...record, image: config.opencodeImage }, runtime }),
+    options: buildContainerCreateOptions({ record: { ...record, image: config.runtimeImage }, runtime }),
   };
 }
 
@@ -134,7 +134,7 @@ async function createDockerContainer(record: ContainerWithUser, containerOpts?: 
     where: { id: record.id },
     data: {
       dockerContainerId: created.id,
-      image: config.opencodeImage,
+      image: config.runtimeImage,
       status: ContainerStatus.CREATING,
       deletedAt: null,
       lastError: null,
@@ -189,7 +189,7 @@ async function touchProxyActivity(record: ContainerInstance) {
       userId: record.userId,
       containerId: record.id,
       kind: "proxy",
-      detail: "Gateway forwarded traffic to the opencode container.",
+      detail: "Gateway forwarded traffic to the runtime container.",
     });
   }
 }
@@ -339,7 +339,7 @@ export async function ensureContainerRecordForUser(userId: string) {
       userId: user.id,
       name: meta.name,
       proxySlug: meta.proxySlug,
-      image: config.opencodeImage,
+      image: config.runtimeImage,
       status: ContainerStatus.STOPPED,
     },
     include: {
@@ -364,7 +364,7 @@ async function startContainerRecordUnlocked(record: ContainerWithUser, suppliedR
     // how an image swap propagates: each container lazily updates on its next
     // wake, no manual rebuild needed. resolveImageId returns null when the tag
     // is missing, which leaves the container untouched.
-    const currentImageId = await resolveImageId(config.opencodeImage);
+    const currentImageId = await resolveImageId(config.runtimeImage);
     const imageDrifted =
       !!currentImageId && !!inspect?.Image && inspect.Image !== currentImageId;
     const imageEnvironment = inspect
@@ -429,7 +429,7 @@ async function startContainerRecordUnlocked(record: ContainerWithUser, suppliedR
   let healthy = false;
   while (Date.now() < healthDeadline) {
     const responses = await Promise.all([
-      "/api/info", "/api/agent", "/api/session",
+      "/runtime/health", "/runtime/agents", "/runtime/sessions",
     ].map((route) => fetch(`${getContainerProxyTarget(record)}${route}`, {
       headers: { authorization: runtimeAuthorization(password) },
       signal: AbortSignal.timeout(2_000),
@@ -441,18 +441,17 @@ async function startContainerRecordUnlocked(record: ContainerWithUser, suppliedR
   if (!healthy) {
     await prisma.containerInstance.update({
       where: { id: record.id },
-      data: { status: ContainerStatus.ERROR, lastError: "OpenCode 健康检查未通过" },
+      data: { status: ContainerStatus.ERROR, lastError: "DSH 运行环境健康检查未通过" },
     });
-    throw new Error("OpenCode 健康检查未通过");
+    throw new Error("DSH 运行环境健康检查未通过");
   }
 
-  // A listening V2 server can precede location/configuration initialization.
   // Gate READY on the exact managed catalog, not merely on HTTP 200.
   let actualAgentKeys: string[] = [];
   const agentDeadline = Date.now() + 60_000;
   while (Date.now() < agentDeadline) {
     await Promise.all(expected.runtime.agentKeys.map((key) =>
-      fetchRuntimeJson(record, `/api/agent/${encodeURIComponent(key)}`).catch(() => undefined),
+      fetchRuntimeJson(record, `/runtime/agents/${encodeURIComponent(key)}`).catch(() => undefined),
     ));
     actualAgentKeys = await fetchActualBusinessAgentKeys(record).catch(() => []);
     if (JSON.stringify(actualAgentKeys) === JSON.stringify(expected.runtime.agentKeys)) break;
@@ -487,7 +486,7 @@ async function startContainerRecordUnlocked(record: ContainerWithUser, suppliedR
     userId: updated.userId,
     containerId: updated.id,
     kind: "start",
-    detail: "Gateway started the dedicated opencode container.",
+    detail: "Gateway started the dedicated runtime container.",
   });
 
   return updated;
@@ -534,23 +533,20 @@ const internalAgentKeys = new Set([
   "compaction",
   "title",
   "summary",
-  "customize-opencode",
 ]);
 
 async function fetchRuntimeJson(record: ContainerInstance, route: string) {
   const connection = { target: getContainerProxyTarget(record), authorization: runtimeAuthorization(await getRuntimePassword(record.userId)) };
-  if (route === "/api/session") return v2List(connection, route);
-  const result = await v2Request<any>(connection, "GET", route, undefined, 3_000);
-  if (route === "/api/session/active") return Object.fromEntries(Object.keys(result.data).map((id) => [id, { type: "busy" }]));
-  return result.data ?? result;
+  return runtimeHttpRequest<any>(connection, "GET", route, undefined, 3_000);
 }
 
 export async function fetchActualBusinessAgentKeys(record: ContainerInstance) {
-  const payload = await fetchRuntimeJson(record, "/api/agent");
+  const payload = await fetchRuntimeJson(record, "/runtime/agents");
   const keys = Array.isArray(payload)
     ? payload.flatMap((entry) => {
       if (!entry || typeof entry !== "object") return [];
-      const name = (entry as { id?: unknown }).id;
+      const row = entry as { id?: unknown; name?: unknown };
+      const name = typeof row.id === "string" ? row.id : row.name;
       return typeof name === "string" ? [name] : [];
     })
     : payload && typeof payload === "object"
@@ -561,10 +557,10 @@ export async function fetchActualBusinessAgentKeys(record: ContainerInstance) {
 
 export async function getRuntimeWorkState(record: ContainerInstance) {
   const [status, questions, permissions, sessions] = await Promise.all([
-    fetchRuntimeJson(record, "/api/session/active"),
-    fetchRuntimeJson(record, "/api/form"),
-    fetchRuntimeJson(record, "/api/permission/request"),
-    fetchRuntimeJson(record, "/api/session"),
+    fetchRuntimeJson(record, "/runtime/sessions/active"),
+    fetchRuntimeJson(record, "/runtime/questions"),
+    fetchRuntimeJson(record, "/runtime/permissions"),
+    fetchRuntimeJson(record, "/runtime/sessions"),
   ]);
   const busySessionIds = status && typeof status === "object"
     ? Object.entries(status)
@@ -634,7 +630,7 @@ export async function stopContainerRecord(record: ContainerWithUser) {
     userId: updated.userId,
     containerId: updated.id,
     kind: "stop",
-    detail: "Gateway stopped the opencode container after an explicit action or idle timeout.",
+    detail: "Gateway stopped the runtime container after an explicit action or idle timeout.",
   });
 
   return updated;
@@ -700,7 +696,7 @@ async function restartContainerRecordUnlocked(record: ContainerWithUser) {
       userId: nextRecord.userId,
       containerId: nextRecord.id,
       kind: "stop",
-      detail: "Gateway stopped the opencode container before restarting it.",
+      detail: "Gateway stopped the runtime container before restarting it.",
     });
   }
 
@@ -776,7 +772,7 @@ export async function recreateContainerRuntimeByUserId(userId: string, runtime?:
     const updatedRecord = await prisma.containerInstance.update({
       where: { id: record.id },
       data: {
-        image: config.opencodeImage,
+        image: config.runtimeImage,
         dockerContainerId: null,
         status: ContainerStatus.STOPPED,
         deletedAt: null,
@@ -972,7 +968,7 @@ export async function isContainerRuntimeRunning(record: ContainerInstance) {
 }
 
 export function getContainerProxyTarget(container: Pick<ContainerInstance, "name">) {
-  return `http://${container.name}:${config.opencodePort}`;
+  return `http://${container.name}:${config.runtimePort}`;
 }
 
 export async function getActiveContainerRuntime(record: ContainerInstance) {

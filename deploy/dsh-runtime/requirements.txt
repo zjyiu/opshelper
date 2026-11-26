@@ -1,4 +1,4 @@
-# 技能（opencode skills）运行所需的 Python 依赖。
+# 技能（DSH skills）运行所需的 Python 依赖。
 #
 # 离线环境无法在容器内 `pip install`，故所有技能要用到的 Python 包都在构建
 # runtime 镜像时预装进来（见 Dockerfile）。新增技能依赖时：在此追加并钉死版本，

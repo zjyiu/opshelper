@@ -7,7 +7,7 @@ import { IconClose, IconSearch } from "./chat/icons";
 import { confirm as confirmDialog } from "./ui/dialog-host";
 import { toast } from "@/lib/toast";
 
-const API_BASE = "/v1/admin/opencode/models";
+const API_BASE = "/v1/admin/runtime/models";
 // 与后端 MODEL_ID_RE 一致：厂商模型 id 常见字符（点/冒号/斜杠），不含空白。
 const MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,128}$/;
 

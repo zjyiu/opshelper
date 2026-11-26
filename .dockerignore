@@ -30,7 +30,7 @@ examples
 *.tsbuildinfo
 # Local development-agent instructions and caches
 .agents
-.opencode
+.dsh
 .codex
 .aws
 .cache

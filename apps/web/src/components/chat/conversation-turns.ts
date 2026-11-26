@@ -8,7 +8,7 @@ export interface ConversationTurn {
 }
 
 /**
- * OpenCode emits one assistant message per tool step and another for the final
+ * The runtime emits one assistant message per tool step and another for the final
  * answer. Group adjacent assistant messages so one user request gets one
  * answer card with a single, truthful operation record.
  */
