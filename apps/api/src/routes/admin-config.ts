@@ -33,6 +33,93 @@ const modelSettingsBodySchema = z.object({
   defaultModel: z.string().max(160).optional().default(""),
 }).strict();
 
+const modelDiscoverBodySchema = z.object({
+  baseURL: z.string().trim().min(1).max(2048),
+  apiKey: z.string().max(4096).optional().default(""),
+}).strict();
+
+const DISCOVER_MODEL_ID_RE = /^[A-Za-z0-9._:/-]{1,128}$/;
+
+export async function discoverRemoteModels(
+  input: { baseURL: string; apiKey?: string },
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ models: Array<{ id: string; name: string }> }> {
+  const trimmedBase = input.baseURL.trim().replace(/\/+$/, "");
+  if (!/^https?:\/\/.+/.test(trimmedBase)) {
+    throw new AdminConfigError("接口地址 (baseURL) 需以 http:// 或 https:// 开头", 400);
+  }
+  const url = trimmedBase.endsWith("/models") ? trimmedBase : `${trimmedBase}/models`;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const trimmedKey = input.apiKey?.trim() ?? "";
+  if (trimmedKey) {
+    headers.Authorization = `Bearer ${trimmedKey}`;
+  }
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new AdminConfigError("连接模型服务超时，请检查接口地址与网络连通性", 504);
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new AdminConfigError(`无法连接模型服务：${detail}`, 502);
+  }
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const payload = (await response.json()) as { error?: { message?: string }; message?: string };
+      detail = payload.error?.message || payload.message || "";
+    } catch {
+      // ignore non-json error body
+    }
+    const suffix = detail ? `：${detail}` : "";
+    if (response.status === 401 || response.status === 403) {
+      throw new AdminConfigError(`接口鉴权失败（${response.status}），请检查 API Key${suffix}`, 502);
+    }
+    throw new AdminConfigError(`模型列表接口返回错误（HTTP ${response.status}）${suffix}`, 502);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new AdminConfigError("模型列表接口未返回合法 JSON", 502);
+  }
+
+  const rawList = Array.isArray(payload)
+    ? payload
+    : (payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data))
+      ? (payload as { data: unknown[] }).data
+      : null;
+  if (!rawList) {
+    throw new AdminConfigError("接口返回格式不符合 OpenAI /models 规范（缺少 data 数组）", 502);
+  }
+
+  const byId = new Map<string, { id: string; name: string }>();
+  for (const item of rawList) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as { id?: unknown; name?: unknown; display_name?: unknown };
+    const id = typeof record.id === "string" ? record.id.trim() : "";
+    if (!id || !DISCOVER_MODEL_ID_RE.test(id)) continue;
+    if (byId.has(id)) continue;
+    const rawName = typeof record.name === "string"
+      ? record.name.trim()
+      : typeof record.display_name === "string"
+        ? record.display_name.trim()
+        : "";
+    byId.set(id, { id, name: (rawName || id).slice(0, 128) });
+  }
+
+  const models = Array.from(byId.values()).sort((a, b) => a.id.localeCompare(b.id));
+  return { models };
+}
+
 const platformInstructionsBodySchema = z.object({
   content: z.string(),
 }).strict();
@@ -177,6 +264,17 @@ export async function registerAdminConfigRoutes(app: FastifyInstance) {
     if (!await requireAdmin(request, reply)) return;
     try {
       return await getModelSettings();
+    } catch (error) {
+      return handleError(error, reply);
+    }
+  });
+
+  app.post("/v1/admin/opencode/models/discover", async (request, reply) => {
+    if (!await requireAdmin(request, reply)) return;
+    const parsed = modelDiscoverBodySchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ message: "请先填写合法的接口地址 (baseURL)" });
+    try {
+      return await discoverRemoteModels(parsed.data);
     } catch (error) {
       return handleError(error, reply);
     }

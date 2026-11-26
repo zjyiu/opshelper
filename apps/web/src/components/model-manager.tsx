@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
+import { IconClose, IconSearch } from "./chat/icons";
 import { confirm as confirmDialog } from "./ui/dialog-host";
 import { toast } from "@/lib/toast";
 
@@ -52,6 +54,10 @@ export function ModelManager({ onDirty }: { onDirty: () => void }) {
   const [defaultKey, setDefaultKey] = useState<string | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveredModels, setDiscoveredModels] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [selectedDiscoveredIds, setSelectedDiscoveredIds] = useState<string[]>([]);
+  const [discoverQuery, setDiscoverQuery] = useState("");
 
   const currentSnapshot = useMemo(() => {
     const defaultModel = rows.find((m) => m.key === defaultKey)?.id ?? rows[0]?.id ?? "";
@@ -121,6 +127,107 @@ export function ModelManager({ onDirty }: { onDirty: () => void }) {
       return next;
     });
   }, []);
+
+  const existingModelIds = useMemo(
+    () => new Set(rows.map((row) => row.id.trim()).filter(Boolean)),
+    [rows],
+  );
+
+  const filteredDiscoveredModels = useMemo(() => {
+    if (!discoveredModels) return [];
+    const keyword = discoverQuery.trim().toLowerCase();
+    if (!keyword) return discoveredModels;
+    return discoveredModels.filter((model) =>
+      model.id.toLowerCase().includes(keyword) || model.name.toLowerCase().includes(keyword),
+    );
+  }, [discoveredModels, discoverQuery]);
+
+  const selectableFilteredIds = useMemo(
+    () => filteredDiscoveredModels
+      .filter((model) => !existingModelIds.has(model.id))
+      .map((model) => model.id),
+    [existingModelIds, filteredDiscoveredModels],
+  );
+
+  useEffect(() => {
+    if (!discoveredModels) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDiscoveredModels(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [discoveredModels]);
+
+  const discoverModels = useCallback(async () => {
+    const trimmedBase = baseURL.trim();
+    if (!/^https?:\/\/.+/.test(trimmedBase)) {
+      toast.error("请先填写以 http:// 或 https:// 开头的接口地址 (baseURL)");
+      return;
+    }
+    setDiscovering(true);
+    try {
+      const response = await fetch(`${API_BASE}/discover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          baseURL: trimmedBase,
+          apiKey: apiKey.trim(),
+        }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const data = (await response.json()) as { models?: Array<{ id: string; name: string }> };
+      const models = Array.isArray(data.models) ? data.models : [];
+      if (models.length === 0) {
+        toast.info("接口未返回可用模型，请手动添加");
+        return;
+      }
+      const addable = models.filter((model) => !existingModelIds.has(model.id));
+      if (addable.length === 0) {
+        toast.info(`共获取到 ${models.length} 个模型，已全部在当前列表中`);
+        return;
+      }
+      setDiscoverQuery("");
+      setDiscoveredModels(models);
+      // 列表为空且数量不多时默认全选，减少一次勾选操作。
+      setSelectedDiscoveredIds(
+        existingModelIds.size === 0 && addable.length <= 5
+          ? addable.map((model) => model.id)
+          : [],
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "自动加载模型失败");
+    } finally {
+      setDiscovering(false);
+    }
+  }, [apiKey, baseURL, existingModelIds]);
+
+  const importSelectedModels = useCallback(() => {
+    if (!discoveredModels || selectedDiscoveredIds.length === 0) return;
+    const selectedSet = new Set(selectedDiscoveredIds);
+    const toAdd = discoveredModels.filter(
+      (model) => selectedSet.has(model.id) && !existingModelIds.has(model.id),
+    );
+    if (toAdd.length === 0) {
+      setDiscoveredModels(null);
+      return;
+    }
+    const newRows: ModelRow[] = toAdd.map((model) => ({
+      key: newRowKey(),
+      id: model.id,
+      name: model.name || model.id,
+    }));
+    setRows((prev) => {
+      const cleaned = prev.filter((row) => row.id.trim().length > 0 || row.name.trim().length > 0);
+      return [...cleaned, ...newRows];
+    });
+    setDefaultKey((prev) => prev ?? newRows[0]?.key ?? null);
+    setDiscoveredModels(null);
+    setSelectedDiscoveredIds([]);
+    toast.success(`已导入 ${newRows.length} 个模型，请点击「保存」生效`);
+  }, [discoveredModels, existingModelIds, selectedDiscoveredIds]);
 
   const save = useCallback(async () => {
     const models = rows
@@ -280,6 +387,15 @@ export function ModelManager({ onDirty }: { onDirty: () => void }) {
           <button type="button" className="opshelper-skill-btn small" onClick={addRow}>
             新增模型
           </button>
+          <button
+            type="button"
+            className="opshelper-skill-btn small"
+            onClick={() => void discoverModels()}
+            disabled={discovering || saving || !baseURL.trim()}
+            title="从接口地址的 /models 自动获取可用模型列表"
+          >
+            {discovering ? "加载中…" : "自动加载模型"}
+          </button>
         </div>
       </div>
 
@@ -306,6 +422,154 @@ export function ModelManager({ onDirty }: { onDirty: () => void }) {
           {saving ? "保存中…" : "保存"}
         </button>
       </div>
+
+      {discoveredModels && typeof document !== "undefined" ? createPortal(
+        <div
+          className="file-dialog-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setDiscoveredModels(null);
+          }}
+        >
+          <div
+            className="file-dialog agent-assign-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="model-discover-dialog-title"
+          >
+            <div className="agent-assign-dialog-head">
+              <div>
+                <div className="file-dialog-title" id="model-discover-dialog-title">
+                  选择要导入的模型
+                </div>
+                <div className="muted agent-assign-dialog-sub">
+                  从接口共获取到 {discoveredModels.length} 个模型，勾选后导入到当前模型列表
+                </div>
+              </div>
+              <button
+                type="button"
+                className="agent-assign-dialog-close"
+                aria-label="关闭"
+                onClick={() => setDiscoveredModels(null)}
+              >
+                <IconClose />
+              </button>
+            </div>
+
+            <div className="agent-assign-dialog-toolbar">
+              <div className="agent-catalog-search">
+                <IconSearch />
+                <input
+                  type="search"
+                  className="field-input"
+                  value={discoverQuery}
+                  onChange={(event) => setDiscoverQuery(event.target.value)}
+                  placeholder="搜索模型 ID 或名称..."
+                  aria-label="搜索模型"
+                />
+                {discoverQuery ? (
+                  <button
+                    type="button"
+                    className="agent-catalog-search-clear"
+                    aria-label="清除搜索"
+                    onClick={() => setDiscoverQuery("")}
+                  >
+                    <IconClose />
+                  </button>
+                ) : null}
+              </div>
+              <div className="agent-assign-dialog-quick">
+                <button
+                  type="button"
+                  disabled={!selectableFilteredIds.length}
+                  onClick={() =>
+                    setSelectedDiscoveredIds((current) =>
+                      Array.from(new Set([...current, ...selectableFilteredIds])),
+                    )
+                  }
+                >
+                  全选
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedDiscoveredIds.length}
+                  onClick={() => {
+                    const visibleSet = new Set(selectableFilteredIds);
+                    setSelectedDiscoveredIds((current) =>
+                      current.filter((id) => !visibleSet.has(id)),
+                    );
+                  }}
+                >
+                  取消全选
+                </button>
+              </div>
+            </div>
+
+            <div className="agent-assign-dialog-list">
+              {!filteredDiscoveredModels.length ? (
+                <div className="um-empty">没有匹配的模型。</div>
+              ) : (
+                filteredDiscoveredModels.map((model) => {
+                  const alreadyAdded = existingModelIds.has(model.id);
+                  const checked = alreadyAdded || selectedDiscoveredIds.includes(model.id);
+                  return (
+                    <label
+                      key={model.id}
+                      className={`agent-assign-user-item${checked ? " checked" : ""}${alreadyAdded ? " disabled" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={alreadyAdded}
+                        onChange={() =>
+                          setSelectedDiscoveredIds((current) =>
+                            current.includes(model.id)
+                              ? current.filter((id) => id !== model.id)
+                              : [...current, model.id],
+                          )
+                        }
+                      />
+                      <span className="agent-assign-user-info">
+                        <strong className="mono">{model.id}</strong>
+                        {model.name && model.name !== model.id ? (
+                          <span className="muted">{model.name}</span>
+                        ) : null}
+                      </span>
+                      {alreadyAdded ? (
+                        <span className="agent-assign-user-role">已添加</span>
+                      ) : null}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="agent-assign-dialog-foot">
+              <span className="muted">
+                已选 {selectedDiscoveredIds.length} 个新模型
+              </span>
+              <div className="inline-actions">
+                <button
+                  className="button-secondary"
+                  type="button"
+                  onClick={() => setDiscoveredModels(null)}
+                >
+                  取消
+                </button>
+                <button
+                  className="button"
+                  type="button"
+                  disabled={selectedDiscoveredIds.length === 0}
+                  onClick={importSelectedModels}
+                >
+                  导入选中（{selectedDiscoveredIds.length}）
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }
